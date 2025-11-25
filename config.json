@@ -1,0 +1,39 @@
+{
+    "staff": {
+        "list": [
+            "横山", "齊藤", "杉原", "田中", "藤原", "楠本",
+            "大仲", "玉置", "永濱", "井上", "堀江", "永井"
+        ],
+        "dayShiftOnlyCount": 3
+    },
+    "shiftHours": {
+        "日勤": 8,
+        "24A": 16,
+        "24B": 16,
+        "夜勤": 16,
+        "有休": 8,
+        "明": 0,
+        "休": 0
+    },
+    "requiredStaff": {
+        "weekday": {
+            "dayShift": 3,
+            "nightShift": 3
+        },
+        "weekend": {
+            "nightShift": 3
+        }
+    },
+    "penalties": {
+        "continuousShift": 1000,
+        "hoursDifferenceMultiplier": 100
+    },
+    "shiftTypes": {
+        "24HourShifts": ["24A", "24B", "夜勤"],
+        "dayShift": "日勤",
+        "morningShift": "明",
+        "rest": "休",
+        "paidLeave": "有休"
+    }
+}
+

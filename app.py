@@ -1,8 +1,16 @@
 from flask import Flask, render_template, jsonify
 from datetime import datetime, timedelta
+import json
+import os
 from calendar import monthrange
 
 app = Flask(__name__)
+
+def load_config():
+    """設定ファイルを読み込む"""
+    config_path = os.path.join(os.path.dirname(__file__), 'config.json')
+    with open(config_path, 'r', encoding='utf-8') as f:
+        return json.load(f)
 
 def get_payroll_period():
     """給料計算月度の前月16日から当月15日までの期間を取得"""
@@ -64,7 +72,8 @@ def get_weekday_jp(weekday):
 @app.route('/')
 def index():
     period = get_payroll_period()
-    return render_template('index.html', period=period)
+    config = load_config()
+    return render_template('index.html', period=period, config=config)
 
 @app.route('/api/period')
 def api_period():

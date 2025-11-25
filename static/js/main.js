@@ -22,12 +22,35 @@ window.doInitialize = function() {
     // 初期化フラグを設定
     isInitialized = true;
     
+    initializeDayShiftOnlyCheckboxes();
     initializeSchedule();
     setupDragAndDrop();
     initializeSummary();
     setupAutoAttend();
     initializeAllStaffHours();
 };
+
+// 日勤専門チェックボックスを初期化
+function initializeDayShiftOnlyCheckboxes() {
+    const container = document.getElementById('day-shift-only-checkboxes');
+    if (!container) return;
+    
+    const config = window.appData?.config || {};
+    const dayShiftOnlyCount = config.staff?.dayShiftOnlyCount || 3;
+    const staffList = window.appData?.staffList || [];
+    
+    container.innerHTML = '';
+    for (let i = 0; i < Math.min(dayShiftOnlyCount, staffList.length); i++) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.id = `day-shift-only-${i + 1}`;
+        checkbox.checked = true;
+        label.appendChild(checkbox);
+        label.appendChild(document.createTextNode(` ${i + 1}位: 日勤専門`));
+        container.appendChild(label);
+    }
+}
 
 // スケジュールグリッドを初期化
 function initializeSchedule() {
@@ -348,18 +371,11 @@ function handleShiftDragEnd(e) {
 
 // シフトタイプから勤務時間を取得
 function getShiftHours(shiftType) {
-    switch(shiftType) {
-        case '日勤':
-            return 8;
-        case '24A':
-        case '24B':
-        case '夜勤':
-            return 16;
-        case '有休':
-            return 8;
-        default:
-            return 0;
+    const config = window.appData?.config;
+    if (config && config.shiftHours && config.shiftHours[shiftType] !== undefined) {
+        return config.shiftHours[shiftType];
     }
+    return 0;
 }
 
 // スタッフの勤務時間を計算
@@ -408,7 +424,10 @@ function removeShiftFromCell(cell) {
         }
         
         // 24A/24B/夜勤が削除された場合、翌日の「明」も削除
-        if (shiftType === '24A' || shiftType === '24B' || shiftType === '夜勤') {
+        const config = window.appData?.config || {};
+        const shiftTypesConfig = config.shiftTypes || {};
+        const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+        if (hour24Shifts.includes(shiftType)) {
             removeMorningShiftFromNextDay(staffName, date);
         }
         
@@ -480,7 +499,10 @@ function autoPlaceMorningShift(staffName, currentDate) {
                 }
                 
                 // 「明」を配置
-                placeShiftInCell(nextDateCell, '明');
+                const config = window.appData?.config || {};
+                const shiftTypesConfig = config.shiftTypes || {};
+                const morningShift = shiftTypesConfig.morningShift || '明';
+                placeShiftInCell(nextDateCell, morningShift);
             }
         }
     }
@@ -502,7 +524,10 @@ function removeMorningShiftFromNextDay(staffName, currentDate) {
             if (nextDateCell) {
                 const shiftContent = nextDateCell.querySelector('.shift-content');
                 // 「明」が配置されている場合のみ削除
-                if (shiftContent && shiftContent.dataset.shift === '明') {
+                const config = window.appData?.config || {};
+                const shiftTypesConfig = config.shiftTypes || {};
+                const morningShift = shiftTypesConfig.morningShift || '明';
+                if (shiftContent && shiftContent.dataset.shift === morningShift) {
                     removeShiftFromCell(nextDateCell);
                 }
             }
@@ -552,7 +577,11 @@ function placeShiftInCell(cell, shiftType) {
     scheduleData[staffName][date] = shiftType;
     
     // 24A、24B、または夜勤が配置された場合、翌日に自動的に「明」を配置
-    if (shiftType === '24A' || shiftType === '24B' || shiftType === '夜勤') {
+    const config = window.appData?.config || {};
+    const shiftTypesConfig = config.shiftTypes || {};
+    const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+    const morningShift = shiftTypesConfig.morningShift || '明';
+    if (hour24Shifts.includes(shiftType)) {
         autoPlaceMorningShift(staffName, date);
     }
     
@@ -575,7 +604,11 @@ function initializeSummary() {
     if (!dates) return;
     
     // 集計する勤務種別
-    const summaryTypes = ['日勤', '24A', '24B', '夜勤'];
+    const config = window.appData?.config || {};
+    const shiftTypesConfig = config.shiftTypes || {};
+    const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+    const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+    const summaryTypes = [dayShiftType, ...hour24Shifts];
     
     summaryTypes.forEach(shiftType => {
         const row = document.createElement('div');
@@ -612,7 +645,11 @@ function initializeSummary() {
 // 集計を更新
 function updateSummary() {
     const dates = window.appData.dates;
-    const summaryTypes = ['日勤', '24A', '24B', '夜勤'];
+    const config = window.appData?.config || {};
+    const shiftTypesConfig = config.shiftTypes || {};
+    const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+    const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+    const summaryTypes = [dayShiftType, ...hour24Shifts];
     
     summaryTypes.forEach(shiftType => {
         dates.forEach(dateInfo => {
@@ -664,9 +701,11 @@ function autoAttend() {
         return;
     }
     
-    // 日勤専門スタッフを取得（上位3名）
+    // 日勤専門スタッフを取得
+    const config = window.appData?.config || {};
+    const dayShiftOnlyCount = config.staff?.dayShiftOnlyCount || 3;
     const dayShiftOnlyStaff = [];
-    for (let i = 0; i < Math.min(3, staffList.length); i++) {
+    for (let i = 0; i < Math.min(dayShiftOnlyCount, staffList.length); i++) {
         const checkbox = document.getElementById(`day-shift-only-${i + 1}`);
         if (checkbox && checkbox.checked) {
             dayShiftOnlyStaff.push(staffList[i]);
@@ -727,14 +766,18 @@ function autoAttend() {
     }
     
     // 各スタッフの勤務回数をカウント（バランス用）
+    const config = window.appData?.config || {};
+    const shiftTypesConfig = config.shiftTypes || {};
+    const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+    const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+    
     const shiftCounts = {};
     staffList.forEach(staff => {
-        shiftCounts[staff] = {
-            '24A': 0,
-            '24B': 0,
-            '夜勤': 0,
-            '日勤': 0
-        };
+        shiftCounts[staff] = {};
+        hour24Shifts.forEach(shiftType => {
+            shiftCounts[staff][shiftType] = 0;
+        });
+        shiftCounts[staff][dayShiftType] = 0;
     });
     
     // 日付ごとに処理
@@ -743,9 +786,19 @@ function autoAttend() {
         const weekday = dateInfo.weekday_jp;
         const isWeekend = weekday === '土' || weekday === '日';
         
+        const config = window.appData?.config || {};
+        const requiredStaff = config.requiredStaff || {};
+        const weekdayReq = requiredStaff.weekday || { dayShift: 3, nightShift: 3 };
+        const weekendReq = requiredStaff.weekend || { nightShift: 3 };
+        const shiftTypes = config.shiftTypes || {};
+        const restShift = shiftTypes.rest || '休';
+        const dayShiftType = shiftTypes.dayShift || '日勤';
+        const nightShiftTypes = shiftTypes['24HourShifts'] || ['24A', '24B'];
+        
         if (isWeekend) {
-            // 土日：24勤3名
-            assignShiftWorkers(dateInfo.date, shiftStaff, ['24A', '24B'], 3, shiftCounts, dateIndex);
+            // 土日：24勤を配置
+            const requiredNightShift = weekendReq.nightShift || 3;
+            assignShiftWorkers(dateInfo.date, shiftStaff, nightShiftTypes, requiredNightShift, shiftCounts, dateIndex);
             
             // 日勤専門スタッフは休み（希望休が既に配置されている場合はスキップ）
             dayShiftOnlyStaff.forEach(staff => {
@@ -753,23 +806,26 @@ function autoAttend() {
                 if (cell) {
                     const existingShift = cell.querySelector('.shift-content');
                     if (!existingShift) {
-                        placeShiftInCell(cell, '休');
+                        placeShiftInCell(cell, restShift);
                     }
                 }
             });
         } else {
-            // 平日：日勤3名、24勤3名
+            // 平日：日勤と24勤を配置
+            const requiredDayShift = weekdayReq.dayShift || 3;
+            const requiredNightShift = weekdayReq.nightShift || 3;
+            
             // 日勤専門スタッフから日勤を配置
-            const dayShiftAssignments = assignDayShiftWorkers(dateInfo.date, dayShiftOnlyStaff, 3);
+            const dayShiftAssignments = assignDayShiftWorkers(dateInfo.date, dayShiftOnlyStaff, requiredDayShift);
             
             // 残りの日勤を交代勤務スタッフから配置
-            const remainingDayShift = 3 - dayShiftAssignments;
+            const remainingDayShift = requiredDayShift - dayShiftAssignments;
             if (remainingDayShift > 0) {
-                assignShiftWorkers(dateInfo.date, shiftStaff, ['日勤'], remainingDayShift, shiftCounts, dateIndex);
+                assignShiftWorkers(dateInfo.date, shiftStaff, [dayShiftType], remainingDayShift, shiftCounts, dateIndex);
             }
             
-            // 24勤3名を配置
-            assignShiftWorkers(dateInfo.date, shiftStaff, ['24A', '24B'], 3, shiftCounts, dateIndex);
+            // 24勤を配置
+            assignShiftWorkers(dateInfo.date, shiftStaff, nightShiftTypes, requiredNightShift, shiftCounts, dateIndex);
         }
     });
     
@@ -899,11 +955,14 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
         }
         
         // 24勤を配置する場合のチェック
-        const is24ShiftType = shiftTypes.some(type => ['24A', '24B', '夜勤'].includes(type));
+        const config = window.appData?.config || {};
+        const shiftTypesConfig = config.shiftTypes || {};
+        const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+        const is24ShiftType = shiftTypes.some(type => hour24Shifts.includes(type));
         
         if (is24ShiftType) {
             // 前日が24A/24B/夜勤の場合、今日は「明」が入るので、今日に24勤を配置してはいけない
-            const isPrev24Shift = ['24A', '24B', '夜勤'].includes(prevShift);
+            const isPrev24Shift = hour24Shifts.includes(prevShift);
             if (isPrev24Shift) {
                 return {
                     staff: staff,
@@ -915,7 +974,7 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
             }
             
             // 前々日が24A/24B/夜勤の場合、前日は「明」が入るので、今日は24勤禁止
-            const isAfterMorning = ['24A', '24B', '夜勤'].includes(prevPrevShift);
+            const isAfterMorning = hour24Shifts.includes(prevPrevShift);
             if (isAfterMorning) {
                 return {
                     staff: staff,
@@ -927,19 +986,29 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
             }
         }
         
-        const isContinuous = ['24A', '24B', '夜勤'].includes(prevShift);
-        const totalShifts = shiftCounts[staff]['24A'] + shiftCounts[staff]['24B'] + shiftCounts[staff]['夜勤'] + shiftCounts[staff]['日勤'];
+        const config = window.appData?.config || {};
+        const shiftTypesConfig = config.shiftTypes || {};
+        const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+        const penalties = config.penalties || {};
+        const continuousPenalty = penalties.continuousShift || 1000;
+        const hoursMultiplier = penalties.hoursDifferenceMultiplier || 100;
+        
+        const isContinuous = hour24Shifts.includes(prevShift);
+        const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+        let totalShifts = shiftCounts[staff][dayShiftType] || 0;
+        hour24Shifts.forEach(shiftType => {
+            totalShifts += shiftCounts[staff][shiftType] || 0;
+        });
         
         // 労働時間を計算（希望休も含む）
         const currentHours = calculateStaffHours(staff);
         
         // 平均からの差を大きくペナルティとして反映（労働時間が少ないほど優先）
-        // 差を100倍して、連続勤務のペナルティ（1000）より大きくする
         const hoursDifference = currentHours - averageHours;
-        const hoursPenalty = hoursDifference * 100;
+        const hoursPenalty = hoursDifference * hoursMultiplier;
         
-        // 連続勤務のペナルティ（1000）と労働時間のペナルティを組み合わせ
-        const basePriority = isContinuous ? 1000 : 0;
+        // 連続勤務のペナルティと労働時間のペナルティを組み合わせ
+        const basePriority = isContinuous ? continuousPenalty : 0;
         const priority = basePriority + hoursPenalty;
         
         return {
@@ -974,7 +1043,10 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
                 
                 if (!existingShift) {
                     // 連続勤務を避ける
-                    const isPrev24Shift = ['24A', '24B', '夜勤'].includes(prevShift);
+                    const config = window.appData?.config || {};
+                    const shiftTypesConfig = config.shiftTypes || {};
+                    const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+                    const isPrev24Shift = hour24Shifts.includes(prevShift);
                     
                     if (!isPrev24Shift || shiftTypes.includes('日勤')) {
                         // シフトタイプをローテーション（24A/24Bを交互に）

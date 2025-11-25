@@ -45,16 +45,8 @@
                 <div class="auto-attend-section">
                     <button id="auto-attend-btn" class="auto-attend-btn">自動アテンド</button>
                     <button id="reset-btn" class="reset-btn">全リセット</button>
-                    <div class="settings-section">
-                        <label>
-                            <input type="checkbox" id="day-shift-only-1" checked> 1位: 日勤専門
-                        </label>
-                        <label>
-                            <input type="checkbox" id="day-shift-only-2" checked> 2位: 日勤専門
-                        </label>
-                        <label>
-                            <input type="checkbox" id="day-shift-only-3" checked> 3位: 日勤専門
-                        </label>
+                    <div class="settings-section" id="day-shift-only-checkboxes">
+                        <!-- 日勤専門チェックボックスはJavaScriptで動的に生成 -->
                     </div>
                 </div>
                 <div class="shift-tiles" id="shift-tiles">
@@ -85,21 +77,17 @@
     </div>
 
     <script>
-        // 期間データをJavaScriptに渡す
+        // 期間データと設定をJavaScriptに渡す
         const periodData = {{ period | tojson }};
+        const config = {{ config | tojson }};
         const dates = periodData.dates;
-        
-        // スタッフリスト（モックデータ）
-        const staffList = [
-            '横山', '齊藤', '杉原', '田中', '藤原', '楠本', 
-            '大仲', '玉置', '永濱', '井上', '堀江', '永井'
-        ];
         
         // グローバルに公開
         window.appData = {
             dates: dates,
-            staffList: staffList,
-            periodData: periodData
+            staffList: config.staff.list,
+            periodData: periodData,
+            config: config
         };
     </script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>

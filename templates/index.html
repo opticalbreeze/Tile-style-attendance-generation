@@ -42,6 +42,21 @@
 
             <div class="shift-types-panel">
                 <h3>勤務種別</h3>
+                <div class="auto-attend-section">
+                    <button id="auto-attend-btn" class="auto-attend-btn">自動アテンド</button>
+                    <button id="reset-btn" class="reset-btn">全リセット</button>
+                    <div class="settings-section">
+                        <label>
+                            <input type="checkbox" id="day-shift-only-1" checked> 1位: 日勤専門
+                        </label>
+                        <label>
+                            <input type="checkbox" id="day-shift-only-2" checked> 2位: 日勤専門
+                        </label>
+                        <label>
+                            <input type="checkbox" id="day-shift-only-3" checked> 3位: 日勤専門
+                        </label>
+                    </div>
+                </div>
                 <div class="shift-tiles" id="shift-tiles">
                     <div class="shift-tile" data-shift="24A" draggable="true">
                         <span>24A</span>
@@ -69,7 +84,6 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
         // 期間データをJavaScriptに渡す
         const periodData = {{ period | tojson }};
@@ -88,6 +102,20 @@
             periodData: periodData
         };
     </script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // appData設定後に初期化を実行
+        window.addEventListener('load', function() {
+            if (window.doInitialize) {
+                window.doInitialize();
+            } else if (window.initializeSchedule) {
+                // フォールバック: 直接初期化関数を呼ぶ
+                window.initializeSchedule();
+                if (window.setupDragAndDrop) window.setupDragAndDrop();
+                if (window.initializeSummary) window.initializeSummary();
+                if (window.setupAutoAttend) window.setupAutoAttend();
+            }
+        });
+    </script>
 </body>
 </html>
-

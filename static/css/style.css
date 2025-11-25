@@ -156,6 +156,37 @@ header h1 {
     flex: 1;
 }
 
+.staff-hours-cell {
+    width: 70px;
+    min-width: 70px;
+    padding: 11px 7px;
+    background-color: #fff3cd;
+    border-left: 2px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #333;
+    font-size: 12px;
+    position: sticky;
+    right: 0;
+    z-index: 10;
+}
+
+.hours-header-cell {
+    width: 70px;
+    min-width: 70px;
+    padding: 4px;
+    background-color: #fff3cd;
+    border-left: 2px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #333;
+    border-right: 1px solid #ddd;
+}
+
 .date-cell {
     min-width: 45px;
     width: 45px;
@@ -264,6 +295,75 @@ header h1 {
     margin-bottom: 15px;
     color: #333;
     font-size: 16px;
+}
+
+.auto-attend-section {
+    margin-bottom: 15px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #ddd;
+}
+
+.auto-attend-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #2196F3;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 10px;
+}
+
+.auto-attend-btn:hover {
+    background-color: #1976D2;
+}
+
+.auto-attend-btn:active {
+    background-color: #0D47A1;
+}
+
+.reset-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #F44336;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 10px;
+}
+
+.reset-btn:hover {
+    background-color: #D32F2F;
+}
+
+.reset-btn:active {
+    background-color: #B71C1C;
+}
+
+.settings-section {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-size: 11px;
+}
+
+.settings-section label {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    color: #333;
+}
+
+.settings-section input[type="checkbox"] {
+    margin-right: 5px;
+    cursor: pointer;
 }
 
 .shift-tiles {

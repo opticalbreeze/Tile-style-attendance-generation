@@ -3,18 +3,55 @@ let draggedElement = null;
 let draggedShiftType = null;
 let scheduleData = {}; // {staffName: {date: shiftType}}
 
+// 初期化フラグ
+let isInitialized = false;
+
 // 初期化
-document.addEventListener('DOMContentLoaded', function() {
+window.doInitialize = function() {
+    // 既に初期化済みの場合はスキップ
+    if (isInitialized) {
+        return;
+    }
+    
+    if (!window.appData || !window.appData.dates || !window.appData.staffList) {
+        // appDataが設定されるまで待つ
+        setTimeout(window.doInitialize, 50);
+        return;
+    }
+    
+    // 初期化フラグを設定
+    isInitialized = true;
+    
     initializeSchedule();
     setupDragAndDrop();
     initializeSummary();
-});
+    setupAutoAttend();
+    initializeAllStaffHours();
+};
 
 // スケジュールグリッドを初期化
 function initializeSchedule() {
     const grid = document.getElementById('schedule-grid');
+    if (!grid) {
+        console.error('schedule-grid要素が見つかりません');
+        return;
+    }
+    
+    if (!window.appData) {
+        console.error('window.appDataが設定されていません');
+        return;
+    }
+    
     const dates = window.appData.dates;
     const staffList = window.appData.staffList;
+    
+    if (!dates || !staffList) {
+        console.error('appDataが正しく設定されていません', {dates, staffList});
+        return;
+    }
+    
+    // 既存の行をクリア
+    grid.innerHTML = '';
     
     // 日付ヘッダーを更新
     updateDateHeaders(dates);
@@ -126,6 +163,23 @@ function updateDateHeaders(dates) {
         weekdayCell.textContent = dateInfo.weekday_jp;
         datesHeaderWeekdays.appendChild(weekdayCell);
     });
+    
+    // 勤務時間ヘッダーを追加
+    const hoursHeaderMonth = document.createElement('div');
+    hoursHeaderMonth.className = 'hours-header-cell';
+    hoursHeaderMonth.textContent = '';
+    datesHeaderMonths.appendChild(hoursHeaderMonth);
+    
+    const hoursHeaderDay = document.createElement('div');
+    hoursHeaderDay.className = 'hours-header-cell';
+    hoursHeaderDay.textContent = '';
+    datesHeaderDays.appendChild(hoursHeaderDay);
+    
+    const hoursHeaderWeekday = document.createElement('div');
+    hoursHeaderWeekday.className = 'hours-header-cell';
+    hoursHeaderWeekday.textContent = '勤務時間';
+    hoursHeaderWeekday.style.fontWeight = 'bold';
+    datesHeaderWeekdays.appendChild(hoursHeaderWeekday);
 }
 
 // スタッフ行を作成
@@ -150,6 +204,14 @@ function createStaffRow(staffName, dates) {
     });
     
     row.appendChild(dateCells);
+    
+    // 勤務時間集計セルを追加
+    const hoursCell = document.createElement('div');
+    hoursCell.className = 'staff-hours-cell';
+    hoursCell.dataset.staff = staffName;
+    hoursCell.textContent = '0H';
+    row.appendChild(hoursCell);
+    
     return row;
 }
 
@@ -244,19 +306,11 @@ function handleDrop(e) {
     const shiftType = e.dataTransfer.getData('text/plain') || draggedShiftType;
     if (!shiftType) return;
     
-    // シフトを配置
+    // シフトを配置（placeShiftInCell内で自動的に「明」が配置される）
     placeShiftInCell(cell, shiftType);
-    
-    // 24A、24B、または夜勤が配置された場合、翌日に自動的に「明」を配置
-    if (shiftType === '24A' || shiftType === '24B' || shiftType === '夜勤') {
-        autoPlaceMorningShift(staffName, date);
-    }
     
     // 集計を更新
     updateSummary();
-    
-    draggedElement = null;
-    draggedShiftType = null;
 }
 
 // セル内のシフトのドラッグ開始
@@ -292,6 +346,47 @@ function handleShiftDragEnd(e) {
     });
 }
 
+// シフトタイプから勤務時間を取得
+function getShiftHours(shiftType) {
+    switch(shiftType) {
+        case '日勤':
+            return 8;
+        case '24A':
+        case '24B':
+        case '夜勤':
+            return 16;
+        case '有休':
+            return 8;
+        default:
+            return 0;
+    }
+}
+
+// スタッフの勤務時間を計算
+function calculateStaffHours(staffName) {
+    const dates = window.appData.dates;
+    if (!dates) return 0;
+    
+    let totalHours = 0;
+    dates.forEach(dateInfo => {
+        const shiftType = scheduleData[staffName] && scheduleData[staffName][dateInfo.date];
+        if (shiftType) {
+            totalHours += getShiftHours(shiftType);
+        }
+    });
+    
+    return totalHours;
+}
+
+// スタッフの勤務時間を計算して更新
+function updateStaffHours(staffName) {
+    const hoursCell = document.querySelector(`.staff-hours-cell[data-staff="${staffName}"]`);
+    if (!hoursCell) return;
+    
+    const totalHours = calculateStaffHours(staffName);
+    hoursCell.textContent = totalHours + 'H';
+}
+
 // セルからシフトを削除
 function removeShiftFromCell(cell) {
     const shiftContent = cell.querySelector('.shift-content');
@@ -316,6 +411,9 @@ function removeShiftFromCell(cell) {
         if (shiftType === '24A' || shiftType === '24B' || shiftType === '夜勤') {
             removeMorningShiftFromNextDay(staffName, date);
         }
+        
+        // 勤務時間を更新
+        updateStaffHours(staffName);
         
         // 集計を更新
         updateSummary();
@@ -453,6 +551,14 @@ function placeShiftInCell(cell, shiftType) {
     }
     scheduleData[staffName][date] = shiftType;
     
+    // 24A、24B、または夜勤が配置された場合、翌日に自動的に「明」を配置
+    if (shiftType === '24A' || shiftType === '24B' || shiftType === '夜勤') {
+        autoPlaceMorningShift(staffName, date);
+    }
+    
+    // 勤務時間を更新
+    updateStaffHours(staffName);
+    
     // 集計を更新
     updateSummary();
 }
@@ -462,7 +568,11 @@ function initializeSummary() {
     const summaryArea = document.getElementById('summary-area');
     if (!summaryArea) return;
     
+    // 既存の内容をクリア
+    summaryArea.innerHTML = '';
+    
     const dates = window.appData.dates;
+    if (!dates) return;
     
     // 集計する勤務種別
     const summaryTypes = ['日勤', '24A', '24B', '夜勤'];
@@ -519,4 +629,529 @@ function updateSummary() {
             }
         });
     });
+}
+
+// 自動アテンド機能のセットアップ
+function setupAutoAttend() {
+    const autoAttendBtn = document.getElementById('auto-attend-btn');
+    if (autoAttendBtn) {
+        autoAttendBtn.addEventListener('click', function() {
+            if (confirm('既存のスケジュールをすべてクリアして自動アテンドを実行しますか？')) {
+                autoAttend();
+            }
+        });
+    }
+    
+    const resetBtn = document.getElementById('reset-btn');
+    if (resetBtn) {
+        resetBtn.addEventListener('click', function() {
+            if (confirm('すべてのスケジュールをリセットしますか？')) {
+                clearAllSchedules();
+                updateSummary();
+                alert('すべてのスケジュールをリセットしました。');
+            }
+        });
+    }
+}
+
+// 自動アテンド実行
+function autoAttend() {
+    const dates = window.appData.dates;
+    const staffList = window.appData.staffList;
+    
+    if (!dates || !staffList) {
+        alert('データが正しく読み込まれていません。ページを再読み込みしてください。');
+        return;
+    }
+    
+    // 日勤専門スタッフを取得（上位3名）
+    const dayShiftOnlyStaff = [];
+    for (let i = 0; i < Math.min(3, staffList.length); i++) {
+        const checkbox = document.getElementById(`day-shift-only-${i + 1}`);
+        if (checkbox && checkbox.checked) {
+            dayShiftOnlyStaff.push(staffList[i]);
+        }
+    }
+    
+    // 24時間交代勤務スタッフ（日勤専門以外）
+    const shiftStaff = staffList.filter(staff => !dayShiftOnlyStaff.includes(staff));
+    
+    // 既存の「休」「有休」を保存（希望休として保持）
+    const savedRestDays = {};
+    staffList.forEach(staffName => {
+        dates.forEach(dateInfo => {
+            const cell = getDateCell(staffName, dateInfo.date);
+            if (cell) {
+                const shiftContent = cell.querySelector('.shift-content');
+                if (shiftContent) {
+                    const shiftType = shiftContent.dataset.shift;
+                    if (shiftType === '休' || shiftType === '有休') {
+                        if (!savedRestDays[staffName]) {
+                            savedRestDays[staffName] = {};
+                        }
+                        savedRestDays[staffName][dateInfo.date] = shiftType;
+                    }
+                }
+            }
+        });
+    });
+    
+    // 既存のスケジュールをクリア（「休」「有休」以外）
+    clearAllSchedulesExceptRest(savedRestDays);
+    
+    // 保存した「休」「有休」を復元
+    Object.keys(savedRestDays).forEach(staffName => {
+        Object.keys(savedRestDays[staffName]).forEach(date => {
+            const cell = getDateCell(staffName, date);
+            if (cell) {
+                const shiftType = savedRestDays[staffName][date];
+                placeShiftInCell(cell, shiftType);
+            }
+        });
+    });
+    
+    // スタッフ行が存在するか確認し、なければ再生成
+    const grid = document.getElementById('schedule-grid');
+    if (grid && grid.children.length === 0) {
+        initializeSchedule();
+        // 再度「休」「有休」を復元
+        Object.keys(savedRestDays).forEach(staffName => {
+            Object.keys(savedRestDays[staffName]).forEach(date => {
+                const cell = getDateCell(staffName, date);
+                if (cell) {
+                    const shiftType = savedRestDays[staffName][date];
+                    placeShiftInCell(cell, shiftType);
+                }
+            });
+        });
+    }
+    
+    // 各スタッフの勤務回数をカウント（バランス用）
+    const shiftCounts = {};
+    staffList.forEach(staff => {
+        shiftCounts[staff] = {
+            '24A': 0,
+            '24B': 0,
+            '夜勤': 0,
+            '日勤': 0
+        };
+    });
+    
+    // 日付ごとに処理
+    dates.forEach((dateInfo, dateIndex) => {
+        const date = new Date(dateInfo.date);
+        const weekday = dateInfo.weekday_jp;
+        const isWeekend = weekday === '土' || weekday === '日';
+        
+        if (isWeekend) {
+            // 土日：24勤3名
+            assignShiftWorkers(dateInfo.date, shiftStaff, ['24A', '24B'], 3, shiftCounts, dateIndex);
+            
+            // 日勤専門スタッフは休み（希望休が既に配置されている場合はスキップ）
+            dayShiftOnlyStaff.forEach(staff => {
+                const cell = getDateCell(staff, dateInfo.date);
+                if (cell) {
+                    const existingShift = cell.querySelector('.shift-content');
+                    if (!existingShift) {
+                        placeShiftInCell(cell, '休');
+                    }
+                }
+            });
+        } else {
+            // 平日：日勤3名、24勤3名
+            // 日勤専門スタッフから日勤を配置
+            const dayShiftAssignments = assignDayShiftWorkers(dateInfo.date, dayShiftOnlyStaff, 3);
+            
+            // 残りの日勤を交代勤務スタッフから配置
+            const remainingDayShift = 3 - dayShiftAssignments;
+            if (remainingDayShift > 0) {
+                assignShiftWorkers(dateInfo.date, shiftStaff, ['日勤'], remainingDayShift, shiftCounts, dateIndex);
+            }
+            
+            // 24勤3名を配置
+            assignShiftWorkers(dateInfo.date, shiftStaff, ['24A', '24B'], 3, shiftCounts, dateIndex);
+        }
+    });
+    
+    // 集計を更新
+    updateSummary();
+    
+    alert('自動アテンドが完了しました。');
+}
+
+// 日勤専門スタッフに日勤を割り当て
+function assignDayShiftWorkers(date, staffList, requiredCount) {
+    let assigned = 0;
+    staffList.forEach(staff => {
+        if (assigned < requiredCount) {
+            const cell = getDateCell(staff, date);
+            if (cell) {
+                // 「休」「有休」が既に配置されている場合はスキップ
+                const existingShift = cell.querySelector('.shift-content');
+                if (existingShift) {
+                    const existingShiftType = existingShift.dataset.shift;
+                    if (existingShiftType === '休' || existingShiftType === '有休') {
+                        return; // スキップ
+                    }
+                }
+                
+                if (!existingShift) {
+                    placeShiftInCell(cell, '日勤');
+                    assigned++;
+                }
+            }
+        }
+    });
+    return assigned;
+}
+
+// シフトタイプを選択する共通関数
+function selectShiftType(shiftTypes, shiftTypeCounter) {
+    if (shiftTypes.length === 2 && shiftTypes.includes('24A') && shiftTypes.includes('24B')) {
+        return {
+            shiftType: shiftTypeCounter % 2 === 0 ? '24A' : '24B',
+            counterIncrement: 1
+        };
+    } else if (shiftTypes.includes('日勤')) {
+        return {
+            shiftType: '日勤',
+            counterIncrement: 1
+        };
+    } else {
+        return {
+            shiftType: shiftTypes[shiftTypeCounter % shiftTypes.length],
+            counterIncrement: 1
+        };
+    }
+}
+
+// 交代勤務スタッフにシフトを割り当て
+function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCounts, dateIndex) {
+    const dates = window.appData.dates;
+    
+    // 前日と前々日のシフトを確認
+    const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
+    const prevPrevDate = dateIndex > 1 ? dates[dateIndex - 2].date : null;
+    const prevShifts = {};
+    const prevPrevShifts = {};
+    
+    if (prevDate) {
+        staffList.forEach(staff => {
+            const prevCell = getDateCell(staff, prevDate);
+            if (prevCell) {
+                const prevShift = prevCell.querySelector('.shift-content');
+                if (prevShift) {
+                    prevShifts[staff] = prevShift.dataset.shift;
+                }
+            }
+        });
+    }
+    
+    if (prevPrevDate) {
+        staffList.forEach(staff => {
+            const prevPrevCell = getDateCell(staff, prevPrevDate);
+            if (prevPrevCell) {
+                const prevPrevShift = prevPrevCell.querySelector('.shift-content');
+                if (prevPrevShift) {
+                    prevPrevShifts[staff] = prevPrevShift.dataset.shift;
+                }
+            }
+        });
+    }
+    
+    // 現在の日付のセルを確認（「休」「有休」を避ける）
+    const currentShifts = {};
+    staffList.forEach(staff => {
+        const cell = getDateCell(staff, date);
+        if (cell) {
+            const shiftContent = cell.querySelector('.shift-content');
+            if (shiftContent) {
+                currentShifts[staff] = shiftContent.dataset.shift;
+            }
+        }
+    });
+    
+    // 全スタッフの平均労働時間を計算（労働時間均等化のため）
+    let totalHoursAll = 0;
+    let staffCount = 0;
+    staffList.forEach(staff => {
+        const hours = calculateStaffHours(staff);
+        totalHoursAll += hours;
+        staffCount++;
+    });
+    const averageHours = staffCount > 0 ? totalHoursAll / staffCount : 0;
+    
+    // 各スタッフの優先度を計算
+    const priorities = staffList.map(staff => {
+        const prevShift = prevShifts[staff] || '';
+        const prevPrevShift = prevPrevShifts[staff] || '';
+        const currentShift = currentShifts[staff] || '';
+        
+        // 「休」「有休」が既に配置されている場合は除外
+        if (currentShift === '休' || currentShift === '有休') {
+            return {
+                staff: staff,
+                priority: 9999,
+                totalShifts: 9999,
+                prevShift: prevShift,
+                canAssign: false
+            };
+        }
+        
+        // 24勤を配置する場合のチェック
+        const is24ShiftType = shiftTypes.some(type => ['24A', '24B', '夜勤'].includes(type));
+        
+        if (is24ShiftType) {
+            // 前日が24A/24B/夜勤の場合、今日は「明」が入るので、今日に24勤を配置してはいけない
+            const isPrev24Shift = ['24A', '24B', '夜勤'].includes(prevShift);
+            if (isPrev24Shift) {
+                return {
+                    staff: staff,
+                    priority: 5000,
+                    totalShifts: 5000,
+                    prevShift: prevShift,
+                    canAssign: false
+                };
+            }
+            
+            // 前々日が24A/24B/夜勤の場合、前日は「明」が入るので、今日は24勤禁止
+            const isAfterMorning = ['24A', '24B', '夜勤'].includes(prevPrevShift);
+            if (isAfterMorning) {
+                return {
+                    staff: staff,
+                    priority: 5000,
+                    totalShifts: 5000,
+                    prevShift: prevShift,
+                    canAssign: false
+                };
+            }
+        }
+        
+        const isContinuous = ['24A', '24B', '夜勤'].includes(prevShift);
+        const totalShifts = shiftCounts[staff]['24A'] + shiftCounts[staff]['24B'] + shiftCounts[staff]['夜勤'] + shiftCounts[staff]['日勤'];
+        
+        // 労働時間を計算（希望休も含む）
+        const currentHours = calculateStaffHours(staff);
+        
+        // 平均からの差を大きくペナルティとして反映（労働時間が少ないほど優先）
+        // 差を100倍して、連続勤務のペナルティ（1000）より大きくする
+        const hoursDifference = currentHours - averageHours;
+        const hoursPenalty = hoursDifference * 100;
+        
+        // 連続勤務のペナルティ（1000）と労働時間のペナルティを組み合わせ
+        const basePriority = isContinuous ? 1000 : 0;
+        const priority = basePriority + hoursPenalty;
+        
+        return {
+            staff: staff,
+            priority: priority,
+            totalShifts: totalShifts,
+            totalHours: currentHours,
+            prevShift: prevShift,
+            canAssign: true
+        };
+    });
+    
+    // 優先度順にソート
+    priorities.sort((a, b) => a.priority - b.priority);
+    
+    // シフトを割り当て
+    let assigned = 0;
+    let shiftTypeCounter = 0;
+    
+    priorities.forEach(({staff, prevShift, canAssign}) => {
+        if (assigned < requiredCount && canAssign !== false) {
+            const cell = getDateCell(staff, date);
+            if (cell) {
+                // 「休」「有休」が既に配置されている場合はスキップ
+                const existingShift = cell.querySelector('.shift-content');
+                if (existingShift) {
+                    const existingShiftType = existingShift.dataset.shift;
+                    if (existingShiftType === '休' || existingShiftType === '有休') {
+                        return; // スキップ
+                    }
+                }
+                
+                if (!existingShift) {
+                    // 連続勤務を避ける
+                    const isPrev24Shift = ['24A', '24B', '夜勤'].includes(prevShift);
+                    
+                    if (!isPrev24Shift || shiftTypes.includes('日勤')) {
+                        // シフトタイプをローテーション（24A/24Bを交互に）
+                        let shiftType;
+                        if (shiftTypes.length === 2 && shiftTypes.includes('24A') && shiftTypes.includes('24B')) {
+                            shiftType = shiftTypeCounter % 2 === 0 ? '24A' : '24B';
+                            shiftTypeCounter++;
+                        } else if (shiftTypes.includes('日勤')) {
+                            shiftType = '日勤';
+                        } else {
+                            shiftType = shiftTypes[shiftTypeCounter % shiftTypes.length];
+                            shiftTypeCounter++;
+                        }
+                        
+                        placeShiftInCell(cell, shiftType);
+                        
+                        // 24A/24B/夜勤の場合は翌日に「明」が自動配置される（placeShiftInCell内で処理）
+                        
+                        // カウントを更新
+                        if (shiftCounts[staff][shiftType] !== undefined) {
+                            shiftCounts[staff][shiftType]++;
+                        }
+                        
+                        assigned++;
+                    }
+                }
+            }
+        }
+    });
+    
+    // 必要な人数に達しない場合は、連続勤務でも割り当て（ただし「休」「有休」は避ける）
+    if (assigned < requiredCount) {
+        priorities.forEach(({staff, canAssign}) => {
+            if (assigned < requiredCount && canAssign !== false) {
+                const cell = getDateCell(staff, date);
+                if (cell) {
+                    // 「休」「有休」が既に配置されている場合はスキップ
+                    const existingShift = cell.querySelector('.shift-content');
+                    if (existingShift) {
+                        const existingShiftType = existingShift.dataset.shift;
+                        if (existingShiftType === '休' || existingShiftType === '有休') {
+                            return; // スキップ
+                        }
+                    }
+                    
+                    if (!existingShift) {
+                        let shiftType;
+                        if (shiftTypes.length === 2 && shiftTypes.includes('24A') && shiftTypes.includes('24B')) {
+                            shiftType = shiftTypeCounter % 2 === 0 ? '24A' : '24B';
+                            shiftTypeCounter++;
+                        } else if (shiftTypes.includes('日勤')) {
+                            shiftType = '日勤';
+                        } else {
+                            shiftType = shiftTypes[shiftTypeCounter % shiftTypes.length];
+                            shiftTypeCounter++;
+                        }
+                        
+                        placeShiftInCell(cell, shiftType);
+                        
+                        if (shiftCounts[staff][shiftType] !== undefined) {
+                            shiftCounts[staff][shiftType]++;
+                        }
+                        
+                        assigned++;
+                    }
+                }
+            }
+        });
+    }
+}
+
+// 日付セルを取得
+function getDateCell(staffName, date) {
+    const staffRow = document.querySelector(`.staff-row[data-staff="${staffName}"]`);
+    if (staffRow) {
+        return staffRow.querySelector(`.date-cell[data-date="${date}"]`);
+    }
+    return null;
+}
+
+// すべてのスケジュールをクリア
+function clearAllSchedules() {
+    const dates = window.appData.dates;
+    const staffList = window.appData.staffList;
+    
+    if (!dates || !staffList) {
+        console.error('appDataが正しく設定されていません');
+        return;
+    }
+    
+    staffList.forEach(staffName => {
+        dates.forEach(dateInfo => {
+            const cell = getDateCell(staffName, dateInfo.date);
+            if (cell) {
+                const shiftContent = cell.querySelector('.shift-content');
+                if (shiftContent) {
+                    // シフトコンテンツを削除
+                    shiftContent.remove();
+                    
+                    // 日付ラベルを再表示
+                    cell.querySelectorAll('.date-label, .date-weekday').forEach(el => {
+                        el.style.display = 'block';
+                    });
+                    
+                    // データから削除
+                    if (scheduleData[staffName] && scheduleData[staffName][dateInfo.date]) {
+                        delete scheduleData[staffName][dateInfo.date];
+                    }
+                }
+            }
+        });
+    });
+    
+    scheduleData = {};
+    
+    // すべてのスタッフの勤務時間を更新
+    if (staffList) {
+        staffList.forEach(staffName => {
+            updateStaffHours(staffName);
+        });
+    }
+}
+
+// 「休」「有休」以外のスケジュールをクリア
+function clearAllSchedulesExceptRest(savedRestDays) {
+    const dates = window.appData.dates;
+    const staffList = window.appData.staffList;
+    
+    if (!dates || !staffList) {
+        console.error('appDataが正しく設定されていません');
+        return;
+    }
+    
+    staffList.forEach(staffName => {
+        dates.forEach(dateInfo => {
+            const cell = getDateCell(staffName, dateInfo.date);
+            if (cell) {
+                const shiftContent = cell.querySelector('.shift-content');
+                if (shiftContent) {
+                    const shiftType = shiftContent.dataset.shift;
+                    // 「休」「有休」は保持（savedRestDaysに保存されているもののみ）
+                    if ((shiftType === '休' || shiftType === '有休') && 
+                        savedRestDays[staffName] && savedRestDays[staffName][dateInfo.date]) {
+                        return; // スキップ
+                    }
+                    
+                    // シフトコンテンツを削除
+                    shiftContent.remove();
+                    
+                    // 日付ラベルを再表示
+                    cell.querySelectorAll('.date-label, .date-weekday').forEach(el => {
+                        el.style.display = 'block';
+                    });
+                    
+                    // データから削除
+                    if (scheduleData[staffName] && scheduleData[staffName][dateInfo.date]) {
+                        delete scheduleData[staffName][dateInfo.date];
+                    }
+                }
+            }
+        });
+    });
+    
+    // 「休」「有休」以外のデータをクリア
+    Object.keys(scheduleData).forEach(staffName => {
+        Object.keys(scheduleData[staffName]).forEach(date => {
+            const shiftType = scheduleData[staffName][date];
+            if (shiftType !== '休' && shiftType !== '有休') {
+                delete scheduleData[staffName][date];
+            }
+        });
+    });
+    
+    // すべてのスタッフの勤務時間を更新
+    if (staffList) {
+        staffList.forEach(staffName => {
+            updateStaffHours(staffName);
+        });
+    }
 }

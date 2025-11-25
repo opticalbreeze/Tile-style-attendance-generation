@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>勤務スケジュール管理</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>勤務スケジュール管理</h1>
+            <div class="period-info">
+                <span id="period-display">{{ period.display_year }}年{{ period.display_month }}月度</span>
+                <span id="date-range">{{ period.start_date }} ～ {{ period.end_date }}</span>
+            </div>
+        </header>
+
+        <div class="main-content">
+            <div class="schedule-container">
+                <div class="schedule-header">
+                    <div class="name-header">氏名</div>
+                    <div class="dates-header-wrapper">
+                        <div class="dates-header-row dates-header-months" id="dates-header-months">
+                            <!-- 月ラベル行はJavaScriptで動的に生成 -->
+                        </div>
+                        <div class="dates-header-row dates-header-days" id="dates-header-days">
+                            <!-- 日付行はJavaScriptで動的に生成 -->
+                        </div>
+                        <div class="dates-header-row dates-header-weekdays" id="dates-header-weekdays">
+                            <!-- 曜日行はJavaScriptで動的に生成 -->
+                        </div>
+                    </div>
+                </div>
+                <div class="schedule-grid" id="schedule-grid">
+                    <!-- スタッフ行はJavaScriptで動的に生成 -->
+                </div>
+                <div class="summary-area" id="summary-area">
+                    <!-- 集計エリアはJavaScriptで動的に生成 -->
+                </div>
+            </div>
+
+            <div class="shift-types-panel">
+                <h3>勤務種別</h3>
+                <div class="shift-tiles" id="shift-tiles">
+                    <div class="shift-tile" data-shift="24A" draggable="true">
+                        <span>24A</span>
+                    </div>
+                    <div class="shift-tile" data-shift="24B" draggable="true">
+                        <span>24B</span>
+                    </div>
+                    <div class="shift-tile" data-shift="日勤" draggable="true">
+                        <span>日勤</span>
+                    </div>
+                    <div class="shift-tile" data-shift="夜勤" draggable="true">
+                        <span>夜勤</span>
+                    </div>
+                    <div class="shift-tile" data-shift="明" draggable="true">
+                        <span>明</span>
+                    </div>
+                    <div class="shift-tile" data-shift="休" draggable="true">
+                        <span>休</span>
+                    </div>
+                    <div class="shift-tile" data-shift="有休" draggable="true">
+                        <span>有休</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // 期間データをJavaScriptに渡す
+        const periodData = {{ period | tojson }};
+        const dates = periodData.dates;
+        
+        // スタッフリスト（モックデータ）
+        const staffList = [
+            '横山', '齊藤', '杉原', '田中', '藤原', '楠本', 
+            '大仲', '玉置', '永濱', '井上', '堀江', '永井'
+        ];
+        
+        // グローバルに公開
+        window.appData = {
+            dates: dates,
+            staffList: staffList,
+            periodData: periodData
+        };
+    </script>
+</body>
+</html>
+

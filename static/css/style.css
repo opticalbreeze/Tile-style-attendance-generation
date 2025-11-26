@@ -136,19 +136,33 @@ header h1 {
 }
 
 .staff-name {
-    width: 75px;
-    min-width: 75px;
+    width: 95px;
+    min-width: 95px;
     padding: 11px 7px;
     background-color: #fafafa;
     border-right: 1px solid #ddd;
     display: flex;
     align-items: center;
+    gap: 5px;
     font-weight: 500;
     color: #333;
     font-size: 12px;
     position: sticky;
     left: 0;
     z-index: 10;
+}
+
+.staff-exclude-checkbox {
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+}
+
+.staff-name label {
+    cursor: pointer;
+    flex: 1;
+    user-select: none;
 }
 
 .date-cells {

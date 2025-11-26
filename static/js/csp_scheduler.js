@@ -45,7 +45,9 @@ function cspAutoAttend() {
         !dayShiftOnlyStaff.includes(staff) && !excludedStaff.includes(staff)
     );
     
-    // 既存の「休」「有休」を保存
+    // 既存の「休」「有休」「明」を保存
+    const shiftTypesConfig = config.shiftTypes || {};
+    const morningShift = shiftTypesConfig.morningShift || '明';
     const savedRestDays = {};
     staffList.forEach(staffName => {
         dates.forEach(dateInfo => {
@@ -54,7 +56,7 @@ function cspAutoAttend() {
                 const shiftContent = cell.querySelector('.shift-content');
                 if (shiftContent) {
                     const shiftType = shiftContent.dataset.shift;
-                    if (shiftType === '休' || shiftType === '有休') {
+                    if (shiftType === '休' || shiftType === '有休' || shiftType === morningShift) {
                         if (!savedRestDays[staffName]) {
                             savedRestDays[staffName] = {};
                         }
@@ -65,10 +67,10 @@ function cspAutoAttend() {
         });
     });
     
-    // 既存のスケジュールをクリア（「休」「有休」以外）
+    // 既存のスケジュールをクリア（「休」「有休」「明」以外）
     clearAllSchedulesExceptRest(savedRestDays);
     
-    // 保存した「休」「有休」を復元
+    // 保存した「休」「有休」「明」を復元
     Object.keys(savedRestDays).forEach(staffName => {
         Object.keys(savedRestDays[staffName]).forEach(date => {
             const cell = getDateCell(staffName, date);
@@ -133,7 +135,7 @@ function cspAutoAttend() {
  * CSPソルバー：バックトラッキングを使用
  */
 function solveCSP(dates, shiftStaff, dayShiftOnlyStaff, config, savedRestDays) {
-    const targetHoursMax = 168;
+    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
     const shift24Hours = 16;
     const dayShiftHours = 8;
     const requiredStaff = config.requiredStaff || {};
@@ -163,7 +165,7 @@ function solveCSP(dates, shiftStaff, dayShiftOnlyStaff, config, savedRestDays) {
     if (availableStaffCount > 0) {
         const base24Shifts = Math.floor(total24ShiftNeeded / availableStaffCount);
         const remainder = total24ShiftNeeded % availableStaffCount;
-        const max24Shifts = Math.floor(targetHoursMax / shift24Hours); // 10回
+        const max24Shifts = Math.floor(targetHoursMax / shift24Hours); // 11回（176時間 ÷ 16時間 = 11回）
         
         shiftStaff.forEach((staff, index) => {
             let targetCount = base24Shifts;
@@ -180,7 +182,7 @@ function solveCSP(dates, shiftStaff, dayShiftOnlyStaff, config, savedRestDays) {
     shiftStaff.forEach(staff => {
         schedule[staff] = {};
         dates.forEach(dateInfo => {
-            // 既に「休」「有休」が設定されている場合は保持
+            // 既に「休」「有休」「明」が設定されている場合は保持
             if (savedRestDays[staff] && savedRestDays[staff][dateInfo.date]) {
                 schedule[staff][dateInfo.date] = savedRestDays[staff][dateInfo.date];
             } else {
@@ -444,7 +446,36 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
         
         // 制約チェック
         if (hour24Shifts.includes(prevShift)) return; // 前日が24勤の場合は不可
-        if (hour24Shifts.includes(prevPrevShift) && prevShift === morningShift) return; // 前々日が24勤 AND 前日が「明」の場合は不可
+        
+        // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+        let consecutive24MorningCount = 0;
+        let checkDate = prevDate;
+        let checkPrevDate = prevPrevDate;
+        // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
+        while (checkDate && checkPrevDate) {
+            const checkShift = schedule[staff][checkDate];
+            const checkPrevShift = schedule[staff][checkPrevDate];
+            if (checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
+                consecutive24MorningCount++;
+                // さらに前をチェック
+                const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
+                if (checkIndex > 0) {
+                    checkDate = dates[checkIndex - 1].date;
+                    checkPrevDate = checkIndex > 1 ? dates[checkIndex - 2].date : null;
+                } else {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+        // 連続3回を超える場合は不可
+        if (consecutive24MorningCount >= 3) {
+            return;
+        }
+        
+        // 旧制約：前々日が24勤 AND 前日が「明」の場合は不可（上記のチェックで既にカバー）
+        // if (hour24Shifts.includes(prevPrevShift) && prevShift === morningShift) return;
         
         // 労働時間を計算
         let currentHours = 0;
@@ -462,7 +493,7 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
         });
         
         const futureHours = currentHours + shift24Hours;
-        if (futureHours > targetHoursMax) return; // 168時間を超える場合は不可
+        if (futureHours > targetHoursMax) return; // 176時間を超える場合は不可
         
         // 目標回数と現在の回数を比較
         const targetCount = target24ShiftCount[staff] || 0;
@@ -513,13 +544,31 @@ function canAssign24Shift(schedule, staff, date, dates, dateIndex, targetHoursMa
         }
     }
     
-    // 前々日が24勤 AND 前日が「明」の場合は不可
-    if (prevPrevDate && prevDate) {
-        const prevShift = schedule[staff][prevDate];
-        const prevPrevShift = schedule[staff][prevPrevDate];
-        if (hour24Shifts.includes(prevPrevShift) && prevShift === morningShift) {
-            return false;
+    // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+    let consecutive24MorningCount = 0;
+    let checkDate = prevDate;
+    let checkPrevDate = prevPrevDate;
+    // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
+    while (checkDate && checkPrevDate) {
+        const checkShift = schedule[staff][checkDate];
+        const checkPrevShift = schedule[staff][checkPrevDate];
+        if (checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
+            consecutive24MorningCount++;
+            // さらに前をチェック
+            const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
+            if (checkIndex > 0) {
+                checkDate = dates[checkIndex - 1].date;
+                checkPrevDate = checkIndex > 1 ? dates[checkIndex - 2].date : null;
+            } else {
+                break;
+            }
+        } else {
+            break;
         }
+    }
+    // 連続3回を超える場合は不可
+    if (consecutive24MorningCount >= 3) {
+        return false;
     }
     
     // 労働時間を計算

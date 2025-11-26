@@ -73,7 +73,9 @@ function optimizedAutoAttend() {
         });
     }
     
-    // 既存の「休」「有休」を保存
+    // 既存の「休」「有休」「明」を保存
+    const shiftTypesConfig = config.shiftTypes || {};
+    const morningShift = shiftTypesConfig.morningShift || '明';
     const savedRestDays = {};
     staffList.forEach(staffName => {
         dates.forEach(dateInfo => {
@@ -82,7 +84,7 @@ function optimizedAutoAttend() {
                 const shiftContent = cell.querySelector('.shift-content');
                 if (shiftContent) {
                     const shiftType = shiftContent.dataset.shift;
-                    if (shiftType === '休' || shiftType === '有休') {
+                    if (shiftType === '休' || shiftType === '有休' || shiftType === morningShift) {
                         if (!savedRestDays[staffName]) {
                             savedRestDays[staffName] = {};
                         }
@@ -93,10 +95,10 @@ function optimizedAutoAttend() {
         });
     });
     
-    // 既存のスケジュールをクリア（「休」「有休」以外）
+    // 既存のスケジュールをクリア（「休」「有休」「明」以外）
     clearAllSchedulesExceptRest(savedRestDays);
     
-    // 保存した「休」「有休」を復元
+    // 保存した「休」「有休」「明」を復元
     Object.keys(savedRestDays).forEach(staffName => {
         Object.keys(savedRestDays[staffName]).forEach(date => {
             const cell = getDateCell(staffName, date);
@@ -108,7 +110,7 @@ function optimizedAutoAttend() {
     });
     
     // 第1段階：月全体で各スタッフの24勤回数を決定
-    const targetHoursMax = 168;
+    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
     const shift24Hours = 16;
     const requiredStaff = config.requiredStaff || {};
     const weekdayReq = requiredStaff.weekday || { dayShift: 3, nightShift: 3 };
@@ -128,7 +130,7 @@ function optimizedAutoAttend() {
     if (availableStaffCount > 0) {
         const base24Shifts = Math.floor(total24ShiftNeeded / availableStaffCount);
         const remainder = total24ShiftNeeded % availableStaffCount;
-        const max24Shifts = Math.floor(targetHoursMax / shift24Hours); // 10回
+        const max24Shifts = Math.floor(targetHoursMax / shift24Hours); // 11回（176時間 ÷ 16時間 = 11回）
         
         shiftStaff.forEach((staff, index) => {
             let targetCount = base24Shifts;
@@ -185,7 +187,7 @@ function optimizedAutoAttend() {
 
 // 最適化されたシフト割り当て（残りの日数と必要な回数を考慮）
 function optimizedAssignShifts(date, staffList, shiftTypes, requiredCount, shiftCounts, dateIndex, target24ShiftCount, dates) {
-    const targetHoursMax = 168;
+    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
     const shift24Hours = 16;
     const is24ShiftType = shiftTypes.includes('24A') || shiftTypes.includes('24B');
     
@@ -251,8 +253,28 @@ function optimizedAssignShifts(date, staffList, shiftTypes, requiredCount, shift
             if (hour24Shifts.includes(prevShift)) {
                 return { staff, priority: Infinity, canAssign: false };
             }
-            // 前々日が24勤 AND 前日が「明」の場合は不可
-            if (hour24Shifts.includes(prevPrevShift) && prevShift === morningShift) {
+            // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+            let consecutive24MorningCount = 0;
+            let checkShift = prevShift;
+            let checkPrevShift = prevPrevShift;
+            let checkDate = dateInfo.date;
+            let checkPrevDate = prevDate;
+            // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
+            while (checkPrevDate && checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
+                consecutive24MorningCount++;
+                // さらに前をチェック
+                const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
+                if (checkIndex > 0) {
+                    checkDate = dates[checkIndex].date;
+                    checkPrevDate = checkIndex > 1 ? dates[checkIndex - 1].date : null;
+                    checkShift = scheduleData[staff]?.[checkDate] || '';
+                    checkPrevShift = checkPrevDate ? (scheduleData[staff]?.[checkPrevDate] || '') : '';
+                } else {
+                    break;
+                }
+            }
+            // 連続3回を超える場合は不可
+            if (consecutive24MorningCount >= 3) {
                 return { staff, priority: Infinity, canAssign: false };
             }
             
@@ -362,7 +384,28 @@ function optimizedAssignShifts(date, staffList, shiftTypes, requiredCount, shift
                         // 24勤の場合の制約チェック
                         if (is24ShiftType) {
                             if (hour24Shifts.includes(prevShift)) return;
-                            if (hour24Shifts.includes(prevPrevShift) && prevShift === morningShift) return;
+                            // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+                            let consecutive24MorningCount = 0;
+                            let checkShift = prevShift;
+                            let checkPrevShift = prevPrevShift;
+                            let checkDate = date;
+                            let checkPrevDate = prevDate;
+                            // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
+                            while (checkPrevDate && checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
+                                consecutive24MorningCount++;
+                                // さらに前をチェック
+                                const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
+                                if (checkIndex > 0) {
+                                    checkDate = dates[checkIndex].date;
+                                    checkPrevDate = checkIndex > 1 ? dates[checkIndex - 1].date : null;
+                                    checkShift = scheduleData[staff]?.[checkDate] || '';
+                                    checkPrevShift = checkPrevDate ? (scheduleData[staff]?.[checkPrevDate] || '') : '';
+                                } else {
+                                    break;
+                                }
+                            }
+                            // 連続3回を超える場合は不可
+                            if (consecutive24MorningCount >= 3) return;
                             
                             const currentHours = calculateStaffHours(staff);
                             if (currentHours + shift24Hours > targetHoursMax) return;

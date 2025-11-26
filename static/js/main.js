@@ -124,6 +124,8 @@ function updateDateHeaders(dates) {
             monthLabelForDates.className = 'month-label';
             monthLabelForDates.textContent = month + '月';
             monthLabelForDates.style.flex = `0 0 ${datesInRange.length * 45}px`;
+            monthLabelForDates.style.flexShrink = '0';
+            monthLabelForDates.style.flexGrow = '0';
             datesHeaderMonths.appendChild(monthLabelForDates);
         }
     });
@@ -136,6 +138,8 @@ function updateDateHeaders(dates) {
         monthLabel.className = 'month-label';
         monthLabel.textContent = displayMonth + '月';
         monthLabel.style.flex = `0 0 ${datesInCurrentMonth.length * 45}px`;
+        monthLabel.style.flexShrink = '0';
+        monthLabel.style.flexGrow = '0';
         datesHeaderMonths.appendChild(monthLabel);
     }
     // 日付セル（2行目：日付）
@@ -144,6 +148,8 @@ function updateDateHeaders(dates) {
         dateCell.className = 'date-header-cell date-header-day';
         dateCell.style.minWidth = '45px';
         dateCell.style.width = '45px';
+        dateCell.style.flexShrink = '0';
+        dateCell.style.flexGrow = '0';
         dateCell.style.padding = '4px';
         dateCell.style.textAlign = 'center';
         dateCell.style.borderRight = '1px solid #ddd';
@@ -168,6 +174,8 @@ function updateDateHeaders(dates) {
         weekdayCell.className = 'date-header-cell date-header-weekday';
         weekdayCell.style.minWidth = '45px';
         weekdayCell.style.width = '45px';
+        weekdayCell.style.flexShrink = '0';
+        weekdayCell.style.flexGrow = '0';
         weekdayCell.style.padding = '4px';
         weekdayCell.style.textAlign = 'center';
         weekdayCell.style.borderRight = '1px solid #ddd';
@@ -708,9 +716,11 @@ function setupAutoAttend() {
     const autoAttendBtn = document.getElementById('auto-attend-btn');
     if (autoAttendBtn) {
         autoAttendBtn.addEventListener('click', function() {
-            if (confirm('CSPアルゴリズムによる自動アテンドを実行しますか？\n既存のスケジュール（「休」「有休」以外）はすべてクリアされます。')) {
-                // CSPアルゴリズムを使用（看護師シフト生成に最適化）
-                if (typeof cspAutoAttend === 'function') {
+            if (confirm('看護師シフト自動アテンドを実行しますか？\n既存のスケジュール（「休」「有休」「明」以外）はすべてクリアされます。\n不足している箇所は手動で調整してください。')) {
+                // 看護師シフトアルゴリズムを優先使用
+                if (typeof nurseShiftAutoAttend === 'function') {
+                    nurseShiftAutoAttend();
+                } else if (typeof cspAutoAttend === 'function') {
                     cspAutoAttend();
                 } else if (typeof optimizedAutoAttend === 'function') {
                     optimizedAutoAttend();
@@ -883,7 +893,7 @@ function autoAttend() {
     });
     
     // 月全体の最適化：各スタッフの目標労働時間を計算
-    const targetHoursMax = 168; // 月168時間を上限とする
+    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
     const shift24Hours = 16; // 24A/24Bは16時間
     const dayShiftHours = 8; // 日勤は8時間
     
@@ -917,9 +927,9 @@ function autoAttend() {
                 targetCount++;
             }
             
-            // 168時間以内に収まるように調整
-            // 24勤1回 = 16時間、最大10回（160時間）+ 日勤1回（8時間）= 168時間
-            const max24Shifts = Math.floor(targetHoursMax / shift24Hours); // 10回
+            // 176時間以内に収まるように調整
+            // 24勤1回 = 16時間、最大11回（176時間）
+            const max24Shifts = Math.floor(targetHoursMax / shift24Hours); // 11回（176時間 ÷ 16時間 = 11回）
             targetCount = Math.min(targetCount, max24Shifts);
             
             target24ShiftCount[staff] = targetCount;
@@ -1033,7 +1043,7 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
     const dates = window.appData.dates;
     
     // 24時間交代勤務の労働時間上限
-    const targetHoursMax = 168; // 月168時間を上限とする
+    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
     
     // 前日と前々日のシフトを確認
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
@@ -1143,11 +1153,28 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
                 };
             }
             
-            // 前々日が24A/24B/夜勤 AND 前日が「明」の場合、今日は24勤禁止
-            // これにより、24勤→明→24勤→明のパターンが可能になる
-            // ただし、前日が「明」で前々日が24勤でない場合は、今日に24勤を配置可能
-            const isAfterMorning = hour24Shifts.includes(prevPrevShift) && prevShift === morningShift;
-            if (isAfterMorning) {
+            // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+            let consecutive24MorningCount = 0;
+            let checkShift = prevShift;
+            let checkPrevShift = prevPrevShift;
+            let checkDate = date;
+            let checkPrevDate = prevDate;
+            // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
+            while (checkPrevDate && checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
+                consecutive24MorningCount++;
+                // さらに前をチェック
+                const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
+                if (checkIndex > 0) {
+                    checkDate = dates[checkIndex].date;
+                    checkPrevDate = checkIndex > 1 ? dates[checkIndex - 1].date : null;
+                    checkShift = scheduleData[staff]?.[checkDate] || '';
+                    checkPrevShift = checkPrevDate ? (scheduleData[staff]?.[checkPrevDate] || '') : '';
+                } else {
+                    break;
+                }
+            }
+            // 連続3回を超える場合は24勤禁止
+            if (consecutive24MorningCount >= 3) {
                 return {
                     staff: staff,
                     priority: 5000,
@@ -1352,9 +1379,30 @@ function assignShiftWorkers(date, staffList, shiftTypes, requiredCount, shiftCou
                     const isPrevPrev24Shift = prevPrevShift && hour24Shifts.includes(prevPrevShift);
                     
                     // 前日が24勤の場合は24勤を配置不可（今日は「明」が入る）
-                    // 前日が「明」で前々日が24勤の場合は24勤を配置不可（連続勤務を避ける）
-                    // それ以外の場合は24勤を配置可能（24勤→明→24勤のパターン）
-                    const canAssign24Shift = !isPrev24Shift && !(prevShift === morningShift && isPrevPrev24Shift);
+                    // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+                    let consecutive24MorningCount = 0;
+                    let checkShift = prevShift;
+                    let checkPrevShift = prevPrevShift;
+                    let checkDate = date;
+                    let checkPrevDate = prevDate;
+                    let checkIsPrevPrev24Shift = isPrevPrev24Shift;
+                    // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
+                    while (checkPrevDate && checkShift === morningShift && checkIsPrevPrev24Shift) {
+                        consecutive24MorningCount++;
+                        // さらに前をチェック
+                        const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
+                        if (checkIndex > 0) {
+                            checkDate = dates[checkIndex].date;
+                            checkPrevDate = checkIndex > 1 ? dates[checkIndex - 1].date : null;
+                            checkShift = scheduleData[staff]?.[checkDate] || '';
+                            checkPrevShift = checkPrevDate ? (scheduleData[staff]?.[checkPrevDate] || '') : '';
+                            checkIsPrevPrev24Shift = checkPrevShift && hour24Shifts.includes(checkPrevShift);
+                        } else {
+                            break;
+                        }
+                    }
+                    // 連続3回を超える場合は24勤を配置不可
+                    const canAssign24Shift = !isPrev24Shift && consecutive24MorningCount < 3;
                     
                     if ((canAssign24Shift && is24ShiftType) || shiftTypes.includes('日勤')) {
                         // シフトタイプをローテーション（24A/24Bを交互に）
@@ -1526,10 +1574,13 @@ function clearAllSchedules() {
     }
 }
 
-// 「休」「有休」以外のスケジュールをクリア
+// 「休」「有休」「明」以外のスケジュールをクリア
 function clearAllSchedulesExceptRest(savedRestDays) {
     const dates = window.appData.dates;
     const staffList = window.appData.staffList;
+    const config = window.appData?.config || {};
+    const shiftTypesConfig = config.shiftTypes || {};
+    const morningShift = shiftTypesConfig.morningShift || '明';
     
     if (!dates || !staffList) {
         console.error('appDataが正しく設定されていません');
@@ -1543,8 +1594,8 @@ function clearAllSchedulesExceptRest(savedRestDays) {
                 const shiftContent = cell.querySelector('.shift-content');
                 if (shiftContent) {
                     const shiftType = shiftContent.dataset.shift;
-                    // 「休」「有休」は保持（savedRestDaysに保存されているもののみ）
-                    if ((shiftType === '休' || shiftType === '有休') && 
+                    // 「休」「有休」「明」は保持（savedRestDaysに保存されているもののみ）
+                    if ((shiftType === '休' || shiftType === '有休' || shiftType === morningShift) && 
                         savedRestDays[staffName] && savedRestDays[staffName][dateInfo.date]) {
                         return; // スキップ
                     }
@@ -1566,11 +1617,11 @@ function clearAllSchedulesExceptRest(savedRestDays) {
         });
     });
     
-    // 「休」「有休」以外のデータをクリア
+    // 「休」「有休」「明」以外のデータをクリア
     Object.keys(scheduleData).forEach(staffName => {
         Object.keys(scheduleData[staffName]).forEach(date => {
             const shiftType = scheduleData[staffName][date];
-            if (shiftType !== '休' && shiftType !== '有休') {
+            if (shiftType !== '休' && shiftType !== '有休' && shiftType !== morningShift) {
                 delete scheduleData[staffName][date];
             }
         });

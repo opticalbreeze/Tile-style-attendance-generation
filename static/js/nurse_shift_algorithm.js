@@ -386,6 +386,9 @@ function getShiftCandidatesWithForwardLooking(
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
     const prevPrevDate = dateIndex > 1 ? dates[dateIndex - 2].date : null;
     
+    // 翌日の日付を取得（24勤配置時に「明」を配置するため）
+    const nextDate = dateIndex < dates.length - 1 ? dates[dateIndex + 1].date : null;
+    
     shiftStaff.forEach(staff => {
         if (schedule[staff][date] && schedule[staff][date] !== null) return;
         if (savedRestDays[staff]?.[date]) return;
@@ -398,6 +401,11 @@ function getShiftCandidatesWithForwardLooking(
         
         // 前日が24勤なら不可
         if (hour24Shifts.includes(prevShift)) {
+            canAssign = false;
+        }
+        
+        // 翌日が希望休の場合は不可（24勤配置後に「明」を配置できないため）
+        if (canAssign && nextDate && savedRestDays[staff]?.[nextDate]) {
             canAssign = false;
         }
         
@@ -506,6 +514,7 @@ function getShiftCandidatesRelaxed(
 ) {
     const candidates = [];
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
+    const nextDate = dateIndex < dates.length - 1 ? dates[dateIndex + 1].date : null;
     
     if (shiftStaff.length === 0) {
         return candidates;
@@ -548,6 +557,11 @@ function getShiftCandidatesRelaxed(
         
         // 前日が24勤の場合は不可（これは必須制約）
         if (hour24Shifts.includes(prevShift)) {
+            canAssign = false;
+        }
+        
+        // 翌日が希望休の場合は不可（24勤配置後に「明」を配置できないため）
+        if (canAssign && nextDate && savedRestDays[staff]?.[nextDate]) {
             canAssign = false;
         }
         

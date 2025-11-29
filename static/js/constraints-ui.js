@@ -55,6 +55,21 @@ window.ConstraintsUI = (function() {
             hoursBalancePenaltySelect.value = closestOption.value;
         }
         
+        // 平日24勤人数
+        const requiredStaff = config.requiredStaff || {};
+        const requiredWeekdayNightSelect = document.getElementById('required-weekday-night');
+        if (requiredWeekdayNightSelect) {
+            const count = requiredStaff.weekday?.nightShift || 3;
+            requiredWeekdayNightSelect.value = count.toString();
+        }
+        
+        // 土日24勤人数
+        const requiredWeekendNightSelect = document.getElementById('required-weekend-night');
+        if (requiredWeekendNightSelect) {
+            const count = requiredStaff.weekend?.nightShift || 3;
+            requiredWeekendNightSelect.value = count.toString();
+        }
+        
         // 設定適用ボタン
         const applyBtn = document.getElementById('apply-constraints-btn');
         if (applyBtn) {
@@ -77,12 +92,23 @@ window.ConstraintsUI = (function() {
         const preventSamePairCheckbox = document.getElementById('prevent-same-pair');
         const samePairPenaltySelect = document.getElementById('same-pair-penalty');
         const hoursBalancePenaltySelect = document.getElementById('hours-balance-penalty');
+        const requiredWeekdayNightSelect = document.getElementById('required-weekday-night');
+        const requiredWeekendNightSelect = document.getElementById('required-weekend-night');
         
         if (!window.appData.config.constraints) {
             window.appData.config.constraints = {};
         }
         if (!window.appData.config.penalties) {
             window.appData.config.penalties = {};
+        }
+        if (!window.appData.config.requiredStaff) {
+            window.appData.config.requiredStaff = { weekday: {}, weekend: {} };
+        }
+        if (!window.appData.config.requiredStaff.weekday) {
+            window.appData.config.requiredStaff.weekday = {};
+        }
+        if (!window.appData.config.requiredStaff.weekend) {
+            window.appData.config.requiredStaff.weekend = {};
         }
         
         if (maxConsecutiveSelect) {
@@ -96,6 +122,12 @@ window.ConstraintsUI = (function() {
         }
         if (hoursBalancePenaltySelect) {
             window.appData.config.penalties.hoursDifferenceMultiplier = parseInt(hoursBalancePenaltySelect.value);
+        }
+        if (requiredWeekdayNightSelect) {
+            window.appData.config.requiredStaff.weekday.nightShift = parseInt(requiredWeekdayNightSelect.value);
+        }
+        if (requiredWeekendNightSelect) {
+            window.appData.config.requiredStaff.weekend.nightShift = parseInt(requiredWeekendNightSelect.value);
         }
         
         alert('制約設定を適用しました。\n自動アテンドを実行すると、新しい設定が反映されます。');

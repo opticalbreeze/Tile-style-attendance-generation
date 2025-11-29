@@ -64,6 +64,15 @@ window.ConstraintsUI = (function() {
 
     // 制約設定を適用
     function applyConstraintsSettings() {
+        // Null安全性チェック
+        if (!window.appData) {
+            console.warn('applyConstraintsSettings: appData is not available');
+            return;
+        }
+        if (!window.appData.config) {
+            window.appData.config = {};
+        }
+        
         const maxConsecutiveSelect = document.getElementById('max-consecutive');
         const preventSamePairCheckbox = document.getElementById('prevent-same-pair');
         const samePairPenaltySelect = document.getElementById('same-pair-penalty');
@@ -88,13 +97,6 @@ window.ConstraintsUI = (function() {
         if (hoursBalancePenaltySelect) {
             window.appData.config.penalties.hoursDifferenceMultiplier = parseInt(hoursBalancePenaltySelect.value);
         }
-        
-        console.log('[制約設定] 適用:', {
-            maxConsecutive24Shifts: window.appData.config.constraints.maxConsecutive24Shifts,
-            preventSamePair: window.appData.config.constraints.preventSamePair,
-            samePairPenalty: window.appData.config.penalties.samePairPenalty,
-            hoursDifferenceMultiplier: window.appData.config.penalties.hoursDifferenceMultiplier
-        });
         
         alert('制約設定を適用しました。\n自動アテンドを実行すると、新しい設定が反映されます。');
     }

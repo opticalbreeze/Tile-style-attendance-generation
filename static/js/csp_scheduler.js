@@ -123,7 +123,7 @@ function cspAutoAttend() {
     
     if (solution) {
         // 解が見つかった場合、スケジュールを適用
-        applySolution(solution, dates, staffList);
+        applySolution(solution, dates, staffList, savedRestDays);
         updateSummary();
         alert('CSPアルゴリズムによる自動アテンドが完了しました。');
     } else {
@@ -537,15 +537,19 @@ function validateSolution(schedule, dates, shiftStaff, dailyRequirements, target
 
 /**
  * 解をスケジュールに適用
+ * savedRestDays: 事前に保存された希望休（これに含まれない「休」は自動配置扱い）
  */
-function applySolution(solution, dates, staffList) {
+function applySolution(solution, dates, staffList, savedRestDays = {}) {
     staffList.forEach(staff => {
         dates.forEach(dateInfo => {
             const shift = solution[staff] && solution[staff][dateInfo.date];
             if (shift) {
                 const cell = getDateCell(staff, dateInfo.date);
                 if (cell) {
-                    placeShiftInCell(cell, shift);
+                    // 「休」の場合、事前に保存されていたかどうかをチェック
+                    const isAutoAssigned = (shift === '休' && 
+                        (!savedRestDays[staff] || savedRestDays[staff][dateInfo.date] !== '休'));
+                    placeShiftInCell(cell, shift, isAutoAssigned);
                 }
             }
         });

@@ -1,3 +1,31 @@
+/* CSS変数定義 */
+:root {
+    /* レイアウト幅 */
+    --name-column-width: 80px;
+    --date-cell-width: 45px;
+    --hours-column-width: 70px;
+    
+    /* カラーテーマ */
+    --primary-color: #333;
+    --secondary-color: #666;
+    --border-color: #ddd;
+    --background-light: #f5f5f5;
+    --background-header: #f8f8f8;
+    --background-row: #fafafa;
+    
+    /* シフト色 */
+    --shift-24a-bg: #FFCDD2;
+    --shift-24b-bg: #BBDEFB;
+    --shift-day-bg: #FFF9C4;
+    --shift-night-bg: #E1BEE7;
+    --shift-morning-bg: #C5E1A5;
+    --shift-rest-bg: white;
+    --shift-rest-color: #F44336;
+    --shift-rest-auto-bg: #E3F2FD;
+    --shift-rest-auto-color: #1976D2;
+    --shift-paid-bg: #C8E6C9;
+}
+
 * {
     margin: 0;
     padding: 0;
@@ -11,7 +39,7 @@ html, body {
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background-color: #f5f5f5;
+    background-color: var(--background-light);
     padding: 20px;
     display: flex;
     flex-direction: column;
@@ -68,20 +96,20 @@ header h1 {
 
 .schedule-header {
     display: grid;
-    grid-template-columns: 75px 1fr;
-    background-color: #f8f8f8;
-    border: 1px solid #ddd;
+    grid-template-columns: var(--name-column-width) 1fr;
+    background-color: var(--background-header);
+    border: 1px solid var(--border-color);
     position: sticky;
     top: 0;
     z-index: 10;
 }
 
 .name-header {
-    width: 75px;
-    min-width: 75px;
+    width: var(--name-column-width);
+    min-width: var(--name-column-width);
     padding: 7px 5px;
     font-weight: bold;
-    border-right: 1px solid #ddd;
+    border-right: 1px solid var(--border-color);
     background-color: #f0f0f0;
     display: flex;
     align-items: center;
@@ -142,16 +170,16 @@ header h1 {
 }
 
 .staff-name {
-    width: 95px;
-    min-width: 95px;
+    width: var(--name-column-width);
+    min-width: var(--name-column-width);
     padding: 11px 7px;
-    background-color: #fafafa;
-    border-right: 1px solid #ddd;
+    background-color: var(--background-row);
+    border-right: 1px solid var(--border-color);
     display: flex;
     align-items: center;
     gap: 5px;
     font-weight: 500;
-    color: #333;
+    color: var(--primary-color);
     font-size: 12px;
     position: sticky;
     left: 0;
@@ -297,6 +325,13 @@ header h1 {
     background-color: white;
     color: #F44336;
     border: 1px solid #F44336;
+}
+
+/* 自動アテンドで配置された「休」（青色） */
+.shift-休.auto-assigned {
+    background-color: #E3F2FD;
+    color: #1976D2;
+    border: 1px solid #1976D2;
 }
 
 .shift-有休 {

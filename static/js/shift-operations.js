@@ -212,7 +212,8 @@ window.ShiftOperations = (function() {
     }
 
     // セルにシフトを配置する共通関数
-    function placeShiftInCell(cell, shiftType) {
+    // isAutoAssigned: 自動アテンドで配置された場合はtrue（「休」の色を変える）
+    function placeShiftInCell(cell, shiftType, isAutoAssigned = false) {
         if (!cell) {
             console.warn('placeShiftInCell: cell is null');
             return;
@@ -222,18 +223,43 @@ window.ShiftOperations = (function() {
             return;
         }
         
-        // 既存のシフトコンテンツを削除
+        // 既存のシフトコンテンツを確認・削除
         const existingShift = cell.querySelector('.shift-content');
+        const staffName = cell.dataset?.staff;
+        const date = cell.dataset?.date;
+        
         if (existingShift) {
+            const existingShiftType = existingShift.dataset?.shift;
+            
+            // 既存が24時間シフトで、新しいシフトが24時間シフトでない場合、翌日の「明」を削除
+            const config = window.appData?.config || {};
+            const shiftTypesConfig = config.shiftTypes || {};
+            const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
+            
+            if (hour24Shifts.includes(existingShiftType) && !hour24Shifts.includes(shiftType)) {
+                // 翌日の「明」を削除
+                if (staffName && date) {
+                    removeMorningShiftFromNextDay(staffName, date);
+                }
+            }
+            
             existingShift.remove();
         }
         
         // 新しいシフトを追加
         const shiftContent = document.createElement('div');
-        shiftContent.className = `shift-content shift-${shiftType}`;
+        let className = `shift-content shift-${shiftType}`;
+        // 自動配置された「休」の場合はクラスを追加
+        if (isAutoAssigned && shiftType === '休') {
+            className += ' auto-assigned';
+        }
+        shiftContent.className = className;
         shiftContent.textContent = shiftType;
         shiftContent.draggable = true;
         shiftContent.dataset.shift = shiftType;
+        if (isAutoAssigned) {
+            shiftContent.dataset.autoAssigned = 'true';
+        }
         
         // セル内のシフトもドラッグ可能にする
         shiftContent.addEventListener('dragstart', function(e) {
@@ -261,21 +287,22 @@ window.ShiftOperations = (function() {
         
         cell.appendChild(shiftContent);
         
-        // データを保存
-        const staffName = cell.dataset.staff;
-        const date = cell.dataset.date;
-        window.ScheduleState.setStaffShift(staffName, date, shiftType);
-        
-        // 24A、24B、または夜勤が配置された場合、翌日に自動的に「明」を配置
-        const config = window.appData?.config || {};
-        const shiftTypesConfig = config.shiftTypes || {};
-        const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
-        if (hour24Shifts.includes(shiftType)) {
-            autoPlaceMorningShift(staffName, date);
+        // データを保存（staffName, dateは上で既に取得済み）
+        if (staffName && date) {
+            window.ScheduleState.setStaffShift(staffName, date, shiftType);
+            
+            // 24A、24B、または夜勤が配置された場合、翌日に自動的に「明」を配置
+            // config, shiftTypesConfig, hour24Shiftsは上で既に取得済み
+            const configForMorning = window.appData?.config || {};
+            const shiftTypesForMorning = configForMorning.shiftTypes || {};
+            const hour24ShiftsForMorning = shiftTypesForMorning['24HourShifts'] || ['24A', '24B', '夜勤'];
+            if (hour24ShiftsForMorning.includes(shiftType)) {
+                autoPlaceMorningShift(staffName, date);
+            }
+            
+            // 勤務時間を更新
+            updateStaffHours(staffName);
         }
-        
-        // 勤務時間を更新
-        updateStaffHours(staffName);
         
         // 集計を更新
         if (window.Summary && window.Summary.updateSummary) {

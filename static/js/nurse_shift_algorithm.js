@@ -84,28 +84,17 @@ function nurseShiftAutoAttend() {
         };
     });
     
-    console.log('[看護師シフト] 開始:', {
-        dates: dates.length,
-        shiftStaff: shiftStaff.length,
-        dayShiftOnlyStaff: dayShiftOnlyStaff.length,
-        dailyRequirements: dailyRequirements.length
-    });
-    
     // 2段階アルゴリズムでシフトを生成
     const schedule = generateNurseShiftSchedule(
         dates, shiftStaff, dayShiftOnlyStaff, dailyRequirements, config, savedRestDays
     );
     
-    console.log('[看護師シフト] スケジュール生成結果:', schedule);
-    
     if (schedule) {
         // スケジュールを適用
-        console.log('[看護師シフト] スケジュールを適用中...');
-        applyNurseShiftSchedule(schedule, dates, staffList);
+        applyNurseShiftSchedule(schedule, dates, staffList, savedRestDays);
         updateSummary();
         alert('看護師シフト自動アテンドが完了しました。\n不足している箇所は手動で調整してください。');
     } else {
-        console.error('[看護師シフト] スケジュール生成失敗');
         alert('シフトの生成に失敗しました。制約条件を確認してください。');
     }
 }
@@ -134,10 +123,7 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
     const total24ShiftNeeded = dailyRequirements.reduce((sum, req) => sum + req.nightShift, 0);
     const max24ShiftsPerStaff = Math.floor(targetHoursMax / shift24Hours); // 11回
     
-    console.log(`[看護師シフト] 第1段階: 必要24勤回数=${total24ShiftNeeded}, 24勤務スタッフ数=${shiftStaff.length}, 最大回数/人=${max24ShiftsPerStaff}`);
-    
     if (shiftStaff.length === 0) {
-        console.error('[看護師シフト] 24勤務スタッフが0人です');
         return null;
     }
     
@@ -172,8 +158,6 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
             availableStaff.shift();
         }
     }
-    
-    console.log('[看護師シフト] 目標24勤回数:', target24ShiftCount);
     
     // 第2段階：日付ごとに制約を満たしながら割り当て
     const schedule = {};
@@ -245,8 +229,6 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
             hoursDifferenceMultiplier
         );
         
-        console.log(`[看護師シフト] ${dateInfo.date}: 候補者数=${candidates.length}, 必要人数=${requiredNightShift}`);
-        
         // 優先度順にソート（同優先度はランダム化して偏りを防ぐ）
         candidates.sort((a, b) => {
             const diff = a.priority - b.priority;
@@ -297,8 +279,6 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
         
         // 必要な人数に達しない場合、制約を緩和して再試行
         if (assigned < requiredNightShift) {
-            console.log(`警告: ${dateInfo.date}の24勤が不足しています（必要: ${requiredNightShift}人、割り当て: ${assigned}人）`);
-            
             // 制約を緩和して再試行（連続3回制約を無視、労働時間制約も緩和）
             const relaxedHoursMax = config.constraints?.relaxedHoursMax || 200;
             const relaxedCandidates = getShiftCandidatesRelaxed(
@@ -340,9 +320,56 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
                 }
             });
             
-            if (assigned < requiredNightShift) {
-                console.warn(`最終警告: ${dateInfo.date}の24勤が不足しています（必要: ${requiredNightShift}人、割り当て: ${assigned}人）`);
+        }
+    });
+    
+    // 24勤務者の労働時間を確認し、不足している場合は追加で24勤を割り当て
+    const minTargetHours = targetHoursMax - 32; // 最低目標時間（例: 176-32=144時間）
+    
+    shiftStaff.forEach(staff => {
+        // 現在の労働時間を計算
+        let currentHours = 0;
+        dates.forEach(dateInfo => {
+            const shift = schedule[staff][dateInfo.date];
+            if (hour24Shifts.includes(shift)) {
+                currentHours += shift24Hours;
             }
+        });
+        
+        // 労働時間が不足している場合、空いている日に24勤を追加
+        if (currentHours < minTargetHours) {
+            dates.forEach((dateInfo, dateIndex) => {
+                if (currentHours >= targetHoursMax) return; // 上限に達したら終了
+                
+                const currentShift = schedule[staff][dateInfo.date];
+                if (currentShift && currentShift !== null) return; // 既に割り当てられている
+                if (savedRestDays[staff] && savedRestDays[staff][dateInfo.date]) return; // 希望休
+                
+                // 前日が24勤でないことを確認
+                const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
+                const prevShift = prevDate ? schedule[staff][prevDate] : null;
+                if (hour24Shifts.includes(prevShift)) return; // 前日が24勤なら不可
+                
+                // 翌日が希望休でないことを確認（「明」を配置するため）
+                const nextDate = dateIndex < dates.length - 1 ? dates[dateIndex + 1].date : null;
+                if (nextDate && savedRestDays[staff] && savedRestDays[staff][nextDate]) return;
+                
+                // 24勤を割り当て
+                const futureHours = currentHours + shift24Hours;
+                if (futureHours <= targetHoursMax) {
+                    const shiftType = staff24ShiftCount[staff] % 2 === 0 ? '24A' : '24B';
+                    schedule[staff][dateInfo.date] = shiftType;
+                    staff24ShiftCount[staff]++;
+                    currentHours = futureHours;
+                    
+                    // 翌日に「明」を配置
+                    if (nextDate && (!schedule[staff][nextDate] || schedule[staff][nextDate] === null)) {
+                        if (!savedRestDays[staff] || !savedRestDays[staff][nextDate]) {
+                            schedule[staff][nextDate] = morningShift;
+                        }
+                    }
+                }
+            });
         }
     });
     
@@ -357,8 +384,8 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
         });
     });
     
-    // 2連休を確保（月1回以上）
-    ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift);
+    // 2連休を確保（月1回以上）- ただし労働時間制約を優先
+    ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift, targetHoursMax, shift24Hours);
     
     return schedule;
 }
@@ -396,7 +423,6 @@ function getShiftCandidates(
     const averageHours = staffCountWithHours > 0 ? totalHoursAll / staffCountWithHours : 0;
     
     if (shiftStaff.length === 0) {
-        console.warn(`[看護師シフト] ${date}: 24勤務スタッフが0人です`);
         return candidates;
     }
     
@@ -515,11 +541,6 @@ function getShiftCandidates(
             currentCount: staff24ShiftCount[staff] || 0
         });
     });
-    
-    const assignableCount = candidates.filter(c => c.canAssign).length;
-    if (assignableCount === 0 && candidates.length > 0) {
-        console.warn(`[看護師シフト] ${date}: 割り当て可能な候補者が0人です（全候補者: ${candidates.length}人）`);
-    }
     
     return candidates;
 }
@@ -675,11 +696,27 @@ function hasConsecutiveRestDays(schedule, staff, dates, currentDateIndex, hour24
 
 /**
  * 2連休を確保（月1回以上）
+ * 労働時間制約を考慮し、最低労働時間を下回る場合は2連休を作らない
  */
-function ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift) {
+function ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift, targetHoursMax = 176, shift24Hours = 16) {
     const restShift = '休';
+    const minTargetHours = targetHoursMax - 32; // 最低目標時間
     
     shiftStaff.forEach(staff => {
+        // 現在の労働時間を計算
+        let currentHours = 0;
+        dates.forEach(dateInfo => {
+            const shift = schedule[staff]?.[dateInfo.date];
+            if (hour24Shifts.includes(shift)) {
+                currentHours += shift24Hours;
+            }
+        });
+        
+        // 労働時間が最低目標に達していない場合は2連休を作らない
+        if (currentHours < minTargetHours) {
+            return; // このスタッフはスキップ
+        }
+        
         // 既に2連休があるかチェック
         let hasConsecutiveRest = false;
         for (let i = 0; i < dates.length - 1; i++) {
@@ -779,9 +816,6 @@ function ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, h
             if (bestCandidate) {
                 schedule[staff][bestCandidate.date1] = restShift;
                 schedule[staff][bestCandidate.date2] = restShift;
-                console.log(`[看護師シフト] ${staff}に2連休を設定: ${bestCandidate.date1}, ${bestCandidate.date2}`);
-            } else {
-                console.warn(`[看護師シフト] ${staff}に2連休を設定できませんでした`);
             }
         }
     });
@@ -789,22 +823,32 @@ function ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, h
 
 /**
  * スケジュールを適用
+ * savedRestDays: 事前に保存された希望休（これに含まれない「休」は自動配置扱い）
  */
-function applyNurseShiftSchedule(schedule, dates, staffList) {
+function applyNurseShiftSchedule(schedule, dates, staffList, savedRestDays = {}) {
     let appliedCount = 0;
+    let autoRestCount = 0;
+    
     staffList.forEach(staff => {
         dates.forEach(dateInfo => {
             const shift = schedule[staff]?.[dateInfo.date];
             if (shift) {
                 const cell = getDateCell(staff, dateInfo.date);
                 if (cell) {
-                    placeShiftInCell(cell, shift);
+                    // 「休」の場合、事前に保存されていたかどうかをチェック
+                    const isAutoAssigned = (shift === '休' && 
+                        (!savedRestDays[staff] || savedRestDays[staff][dateInfo.date] !== '休'));
+                    
+                    placeShiftInCell(cell, shift, isAutoAssigned);
                     appliedCount++;
+                    
+                    if (isAutoAssigned) {
+                        autoRestCount++;
+                    }
                 }
             }
         });
     });
-    console.log(`[看護師シフト] 適用完了: ${appliedCount}個のシフトを配置`);
 }
 
 /**

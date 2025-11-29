@@ -70,7 +70,26 @@ window.Summary = (function() {
         const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
         const summaryTypes = [dayShiftType, ...hour24Shifts];
         
+        // 必要人数を取得
+        const requiredStaff = config.requiredStaff || {};
+        const weekdayNightRequired = requiredStaff.weekday?.nightShift || 3;
+        const weekendNightRequired = requiredStaff.weekend?.nightShift || 3;
+        
         const scheduleData = window.ScheduleState?.getScheduleData() || {};
+        
+        // 各日付の24勤+夜勤の合計を計算
+        const dailyNightShiftCount = {};
+        dates.forEach(dateInfo => {
+            if (!dateInfo?.date) return;
+            let count = 0;
+            Object.keys(scheduleData).forEach(staffName => {
+                const shift = scheduleData[staffName]?.[dateInfo.date];
+                if (hour24Shifts.includes(shift)) {
+                    count++;
+                }
+            });
+            dailyNightShiftCount[dateInfo.date] = count;
+        });
         
         summaryTypes.forEach(shiftType => {
             dates.forEach(dateInfo => {
@@ -85,6 +104,19 @@ window.Summary = (function() {
                         }
                     });
                     summaryCell.textContent = count;
+                    
+                    // 24勤・夜勤の場合、合計が必要人数に達していなければ警告色
+                    if (hour24Shifts.includes(shiftType)) {
+                        const isWeekend = dateInfo.weekday_jp === '土' || dateInfo.weekday_jp === '日';
+                        const requiredCount = isWeekend ? weekendNightRequired : weekdayNightRequired;
+                        const totalNightShift = dailyNightShiftCount[dateInfo.date] || 0;
+                        
+                        if (totalNightShift < requiredCount) {
+                            summaryCell.classList.add('shortage-warning');
+                        } else {
+                            summaryCell.classList.remove('shortage-warning');
+                        }
+                    }
                 }
             });
         });

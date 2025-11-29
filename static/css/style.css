@@ -630,6 +630,13 @@ header h1 {
     color: #333;
 }
 
+/* 人数不足警告 */
+.summary-cell.shortage-warning {
+    color: #C62828;
+    background-color: #FFEBEE;
+    font-weight: bold;
+}
+
 /* 制約設定パネル */
 .constraints-section {
     margin-top: 15px;

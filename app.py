@@ -9,8 +9,65 @@ app = Flask(__name__)
 def load_config():
     """設定ファイルを読み込む"""
     config_path = os.path.join(os.path.dirname(__file__), 'config.json')
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    
+    # デフォルト設定
+    default_config = {
+        "staff": {
+            "list": [],
+            "dayShiftOnlyCount": 3
+        },
+        "shiftHours": {
+            "日勤": 8, "24A": 16, "24B": 16, "夜勤": 16,
+            "有休": 8, "明": 0, "休": 0
+        },
+        "requiredStaff": {
+            "weekday": {"dayShift": 3, "nightShift": 3},
+            "weekend": {"nightShift": 3}
+        },
+        "penalties": {
+            "continuousShift": 1000,
+            "hoursDifferenceMultiplier": 100,
+            "samePairPenalty": 100000
+        },
+        "constraints": {
+            "maxConsecutive24Shifts": 2,
+            "preventSamePair": True
+        },
+        "shiftTypes": {
+            "24HourShifts": ["24A", "24B", "夜勤"],
+            "dayShift": "日勤",
+            "morningShift": "明",
+            "rest": "休",
+            "paidLeave": "有休"
+        }
+    }
+    
+    try:
+        if not os.path.exists(config_path):
+            print(f"警告: 設定ファイルが見つかりません: {config_path}")
+            print("デフォルト設定を使用します。")
+            return default_config
+        
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            
+        # デフォルト設定とマージ（読み込んだ設定を優先）
+        for key, value in default_config.items():
+            if key not in config:
+                config[key] = value
+            elif isinstance(value, dict) and isinstance(config[key], dict):
+                for sub_key, sub_value in value.items():
+                    if sub_key not in config[key]:
+                        config[key][sub_key] = sub_value
+        
+        return config
+        
+    except json.JSONDecodeError as e:
+        print(f"エラー: 設定ファイルのJSON形式が不正です: {e}")
+        return default_config
+    except Exception as e:
+        print(f"エラー: 設定ファイルの読み込みに失敗しました: {e}")
+        return default_config
 
 def get_payroll_period():
     """給料計算月度の前月16日から当月15日までの期間を取得"""

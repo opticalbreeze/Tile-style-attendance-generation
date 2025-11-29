@@ -114,12 +114,21 @@ function nurseShiftAutoAttend() {
  * 看護師シフトスケジュールを生成（2段階アプローチ）
  */
 function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyRequirements, config, savedRestDays) {
-    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
-    const shift24Hours = 16;
+    // 設定から定数を取得（ハードコーディング削減）
+    const constraints = config.constraints || {};
+    const shiftHoursConfig = config.shiftHours || {};
+    const targetHoursMax = constraints.targetHoursMax || 176;
+    const shift24Hours = shiftHoursConfig['24A'] || 16;
     const shiftTypesConfig = config.shiftTypes || {};
     const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
     const morningShift = shiftTypesConfig.morningShift || '明';
     const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+    
+    // 制約設定を取得
+    const maxConsecutive24Shifts = constraints.maxConsecutive24Shifts || 2;
+    const preventSamePair = constraints.preventSamePair !== false;
+    const samePairPenalty = config.penalties?.samePairPenalty || 100000;
+    const hoursDifferenceMultiplier = config.penalties?.hoursDifferenceMultiplier || 100;
     
     // 第1段階：月全体で各スタッフの24勤回数を配分
     const total24ShiftNeeded = dailyRequirements.reduce((sum, req) => sum + req.nightShift, 0);
@@ -217,6 +226,9 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
     // まず、各日の現在の割り当て状況を確認
     const dailyAssignedCount = new Array(dates.length).fill(0);
     
+    // 前日の24勤担当者ペアを追跡（ペア連続防止用）
+    let previousDayPair = [];
+    
     // 24勤を日付ごとに割り当て（優先度ベース）
     dates.forEach((dateInfo, dateIndex) => {
         const req = dailyRequirements[dateIndex];
@@ -228,13 +240,20 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
         const candidates = getShiftCandidates(
             schedule, dateInfo.date, shiftStaff, dates, dateIndex,
             target24ShiftCount, staff24ShiftCount, targetHoursMax, shift24Hours,
-            hour24Shifts, morningShift, savedRestDays, requiredNightShift, dailyAssignedCount
+            hour24Shifts, morningShift, savedRestDays, requiredNightShift, dailyAssignedCount,
+            previousDayPair, preventSamePair, samePairPenalty, maxConsecutive24Shifts,
+            hoursDifferenceMultiplier
         );
         
         console.log(`[看護師シフト] ${dateInfo.date}: 候補者数=${candidates.length}, 必要人数=${requiredNightShift}`);
         
-        // 優先度順にソート
-        candidates.sort((a, b) => a.priority - b.priority);
+        // 優先度順にソート（同優先度はランダム化して偏りを防ぐ）
+        candidates.sort((a, b) => {
+            const diff = a.priority - b.priority;
+            if (diff !== 0) return diff;
+            // 同じ優先度の場合はランダムに並び替え
+            return Math.random() - 0.5;
+        });
         
         // 必要な人数分だけ割り当て
         let assigned = 0;
@@ -266,18 +285,35 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
         // 割り当て数を記録
         dailyAssignedCount[dateIndex] = assigned;
         
+        // 当日の24勤担当者ペアを記録（次の日のペア連続防止用）
+        const todaysPair = [];
+        shiftStaff.forEach(staff => {
+            const shift = schedule[staff]?.[dateInfo.date];
+            if (shift === '24A' || shift === '24B') {
+                todaysPair.push(staff);
+            }
+        });
+        previousDayPair = todaysPair;
+        
         // 必要な人数に達しない場合、制約を緩和して再試行
         if (assigned < requiredNightShift) {
             console.log(`警告: ${dateInfo.date}の24勤が不足しています（必要: ${requiredNightShift}人、割り当て: ${assigned}人）`);
             
             // 制約を緩和して再試行（連続3回制約を無視、労働時間制約も緩和）
+            const relaxedHoursMax = config.constraints?.relaxedHoursMax || 200;
             const relaxedCandidates = getShiftCandidatesRelaxed(
                 schedule, dateInfo.date, shiftStaff, dates, dateIndex,
                 target24ShiftCount, staff24ShiftCount, targetHoursMax, shift24Hours,
-                hour24Shifts, morningShift, savedRestDays, requiredNightShift, assigned
+                hour24Shifts, morningShift, savedRestDays, requiredNightShift, assigned, relaxedHoursMax,
+                hoursDifferenceMultiplier
             );
             
-            relaxedCandidates.sort((a, b) => a.priority - b.priority);
+            // 優先度順にソート（同優先度はランダム化）
+            relaxedCandidates.sort((a, b) => {
+                const diff = a.priority - b.priority;
+                if (diff !== 0) return diff;
+                return Math.random() - 0.5;
+            });
             
             relaxedCandidates.forEach(candidate => {
                 if (assigned < requiredNightShift) {
@@ -333,11 +369,31 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
 function getShiftCandidates(
     schedule, date, shiftStaff, dates, dateIndex,
     target24ShiftCount, staff24ShiftCount, targetHoursMax, shift24Hours,
-    hour24Shifts, morningShift, savedRestDays, requiredNightShift = 0, dailyAssignedCount = []
+    hour24Shifts, morningShift, savedRestDays, requiredNightShift = 0, dailyAssignedCount = [],
+    previousDayPair = [], preventSamePair = true, samePairPenalty = 100000, maxConsecutive24Shifts = 2,
+    hoursDifferenceMultiplier = 100
 ) {
     const candidates = [];
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
     const prevPrevDate = dateIndex > 1 ? dates[dateIndex - 2].date : null;
+    
+    // 全スタッフの現在の労働時間を計算（平均計算用）
+    let totalHoursAll = 0;
+    let staffCountWithHours = 0;
+    shiftStaff.forEach(s => {
+        let hours = 0;
+        dates.forEach((d, idx) => {
+            if (idx < dateIndex) {
+                const shift = schedule[s]?.[d.date];
+                if (hour24Shifts.includes(shift)) {
+                    hours += shift24Hours;
+                }
+            }
+        });
+        totalHoursAll += hours;
+        staffCountWithHours++;
+    });
+    const averageHours = staffCountWithHours > 0 ? totalHoursAll / staffCountWithHours : 0;
     
     if (shiftStaff.length === 0) {
         console.warn(`[看護師シフト] ${date}: 24勤務スタッフが0人です`);
@@ -367,7 +423,7 @@ function getShiftCandidates(
             canAssign = false;
         }
         
-        // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+        // 「24明24明24明」の連続パターンをチェック（設定値まで許可）
         if (canAssign) {
             let consecutive24MorningCount = 0;
             let checkShift = prevShift;
@@ -388,8 +444,17 @@ function getShiftCandidates(
                 }
             }
             
-            if (consecutive24MorningCount >= 3) {
+            // 連続24勤の制限（設定値を超える場合は不可）
+            if (consecutive24MorningCount >= maxConsecutive24Shifts) {
                 canAssign = false;
+            }
+        }
+        
+        // 同じペアの連続防止チェック
+        let samePairPenaltyValue = 0;
+        if (canAssign && preventSamePair && previousDayPair.length > 0) {
+            if (previousDayPair.includes(staff)) {
+                samePairPenaltyValue = samePairPenalty;
             }
         }
         
@@ -424,12 +489,19 @@ function getShiftCandidates(
             const hasConsecutiveRest = hasConsecutiveRestDays(schedule, staff, dates, dateIndex, hour24Shifts, morningShift);
             const consecutiveRestBonus = hasConsecutiveRest ? 0 : -50000; // 2連休がない場合は優先
             
+            // 時間均等化ペナルティ: 平均より多く働いているスタッフにペナルティ
+            const hoursDifference = currentHours - averageHours;
+            const hoursEqualizationPenalty = hoursDifference * hoursDifferenceMultiplier;
+            
             // 目標回数に達していない場合を優先
+            // 一意性を高めるため、現在の労働時間とシフト回数を細かく反映
+            const uniquenessFactor = currentHours * 0.1 + currentCount * 0.01;
+            
             if (remainingCount > 0) {
-                priority = shortagePenalty + consecutiveRestBonus - 100000 - (remainingCount * 10000) + (targetHoursMax - currentHours) * 10;
+                priority = shortagePenalty + consecutiveRestBonus + samePairPenaltyValue + hoursEqualizationPenalty - 100000 - (remainingCount * 10000) + (targetHoursMax - currentHours) * 10 + uniquenessFactor;
             } else {
                 // 目標回数に達している場合、優先度を下げる（ただし必要人数を満たすことは優先）
-                priority = shortagePenalty + consecutiveRestBonus + 50000 + (currentCount - targetCount) * 1000;
+                priority = shortagePenalty + consecutiveRestBonus + samePairPenaltyValue + hoursEqualizationPenalty + 50000 + (currentCount - targetCount) * 1000 + uniquenessFactor;
             }
         } else {
             priority = Infinity;
@@ -459,7 +531,8 @@ function getShiftCandidates(
 function getShiftCandidatesRelaxed(
     schedule, date, shiftStaff, dates, dateIndex,
     target24ShiftCount, staff24ShiftCount, targetHoursMax, shift24Hours,
-    hour24Shifts, morningShift, savedRestDays, requiredNightShift = 0, currentAssigned = 0
+    hour24Shifts, morningShift, savedRestDays, requiredNightShift = 0, currentAssigned = 0, relaxedHoursMax = 200,
+    hoursDifferenceMultiplier = 100
 ) {
     const candidates = [];
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
@@ -467,6 +540,24 @@ function getShiftCandidatesRelaxed(
     if (shiftStaff.length === 0) {
         return candidates;
     }
+    
+    // 全スタッフの現在の労働時間を計算（平均計算用）
+    let totalHoursAll = 0;
+    let staffCountWithHours = 0;
+    shiftStaff.forEach(s => {
+        let hours = 0;
+        dates.forEach((d, idx) => {
+            if (idx < dateIndex) {
+                const shift = schedule[s]?.[d.date];
+                if (hour24Shifts.includes(shift)) {
+                    hours += shift24Hours;
+                }
+            }
+        });
+        totalHoursAll += hours;
+        staffCountWithHours++;
+    });
+    const averageHours = staffCountWithHours > 0 ? totalHoursAll / staffCountWithHours : 0;
     
     shiftStaff.forEach(staff => {
         // 既にシフトが割り当てられている場合はスキップ
@@ -502,8 +593,8 @@ function getShiftCandidatesRelaxed(
         });
         
         const futureHours = currentHours + shift24Hours;
-        // 労働時間制約を緩和（200時間まで許可）
-        if (futureHours > 200) {
+        // 労働時間制約を緩和
+        if (futureHours > relaxedHoursMax) {
             canAssign = false;
         }
         
@@ -521,12 +612,19 @@ function getShiftCandidatesRelaxed(
             const hasConsecutiveRest = hasConsecutiveRestDays(schedule, staff, dates, dateIndex, hour24Shifts, morningShift);
             const consecutiveRestBonus = hasConsecutiveRest ? 0 : -50000; // 2連休がない場合は優先
             
+            // 時間均等化ペナルティ: 平均より多く働いているスタッフにペナルティ
+            const hoursDifference = currentHours - averageHours;
+            const hoursEqualizationPenalty = hoursDifference * hoursDifferenceMultiplier;
+            
+            // 一意性を高めるため、現在の労働時間とシフト回数を細かく反映
+            const uniquenessFactor = currentHours * 0.1 + currentCount * 0.01;
+            
             // 目標回数に達していない場合を優先
             if (remainingCount > 0) {
-                priority = shortagePenalty + consecutiveRestBonus - 100000 - (remainingCount * 10000) + (targetHoursMax - currentHours) * 10;
+                priority = shortagePenalty + consecutiveRestBonus + hoursEqualizationPenalty - 100000 - (remainingCount * 10000) + (targetHoursMax - currentHours) * 10 + uniquenessFactor;
             } else {
                 // 目標回数に達している場合、優先度を下げる（ただし必要人数を満たすことは優先）
-                priority = shortagePenalty + consecutiveRestBonus + 50000 + (currentCount - targetCount) * 1000 + (futureHours - targetHoursMax) * 100;
+                priority = shortagePenalty + consecutiveRestBonus + hoursEqualizationPenalty + 50000 + (currentCount - targetCount) * 1000 + (futureHours - targetHoursMax) * 100 + uniquenessFactor;
             }
         } else {
             priority = Infinity;

@@ -26,7 +26,14 @@
     },
     "penalties": {
         "continuousShift": 1000,
-        "hoursDifferenceMultiplier": 100
+        "hoursDifferenceMultiplier": 100,
+        "samePairPenalty": 100000
+    },
+    "constraints": {
+        "maxConsecutive24Shifts": 2,
+        "preventSamePair": true,
+        "targetHoursMax": 176,
+        "relaxedHoursMax": 200
     },
     "shiftTypes": {
         "24HourShifts": ["24A", "24B", "夜勤"],

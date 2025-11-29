@@ -49,6 +49,45 @@
                         <!-- 日勤専門チェックボックスはJavaScriptで動的に生成 -->
                     </div>
                 </div>
+                
+                <!-- 制約設定パネル -->
+                <div class="constraints-section">
+                    <h4>制約設定</h4>
+                    <div class="constraint-item">
+                        <label for="max-consecutive">連続24勤上限</label>
+                        <select id="max-consecutive">
+                            <option value="1">1回まで</option>
+                            <option value="2" selected>2回まで</option>
+                            <option value="3">3回まで</option>
+                            <option value="4">4回まで</option>
+                        </select>
+                    </div>
+                    <div class="constraint-item">
+                        <label>
+                            <input type="checkbox" id="prevent-same-pair" checked>
+                            ペア連続防止
+                        </label>
+                    </div>
+                    <div class="constraint-item">
+                        <label for="same-pair-penalty">ペア防止強度</label>
+                        <select id="same-pair-penalty">
+                            <option value="50000">弱</option>
+                            <option value="100000" selected>中</option>
+                            <option value="200000">強</option>
+                            <option value="500000">最強</option>
+                        </select>
+                    </div>
+                    <div class="constraint-item">
+                        <label for="hours-balance-penalty">時間均等化</label>
+                        <select id="hours-balance-penalty">
+                            <option value="10">弱</option>
+                            <option value="100" selected>中</option>
+                            <option value="500">強</option>
+                            <option value="1000">最強</option>
+                        </select>
+                    </div>
+                    <button id="apply-constraints-btn" class="apply-constraints-btn">設定を適用</button>
+                </div>
                 <div class="shift-tiles" id="shift-tiles">
                     <div class="shift-tile" data-shift="24A" draggable="true">
                         <span>24A</span>
@@ -90,9 +129,20 @@
             config: config
         };
     </script>
+    <!-- モジュール読み込み（依存関係順） -->
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/schedule-state.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/schedule-grid.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/drag-drop.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/shift-operations.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/summary.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/constraints-ui.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/auto-attend-controller.js') }}"></script>
+    <!-- アルゴリズム -->
     <script src="{{ url_for('static', filename='js/optimized_assign.js') }}"></script>
     <script src="{{ url_for('static', filename='js/csp_scheduler.js') }}"></script>
     <script src="{{ url_for('static', filename='js/nurse_shift_algorithm.js') }}"></script>
+    <!-- エントリーポイント -->
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     <script>
         // appData設定後に初期化を実行

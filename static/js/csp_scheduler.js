@@ -135,9 +135,12 @@ function cspAutoAttend() {
  * CSPソルバー：バックトラッキングを使用
  */
 function solveCSP(dates, shiftStaff, dayShiftOnlyStaff, config, savedRestDays) {
-    const targetHoursMax = 176; // 24勤11回（11回 × 16時間 = 176時間）
-    const shift24Hours = 16;
-    const dayShiftHours = 8;
+    // 設定から定数を取得（ハードコーディング削減）
+    const constraints = config.constraints || {};
+    const shiftHoursConfig = config.shiftHours || {};
+    const targetHoursMax = constraints.targetHoursMax || 176;
+    const shift24Hours = shiftHoursConfig['24A'] || 16;
+    const dayShiftHours = shiftHoursConfig['日勤'] || 8;
     const requiredStaff = config.requiredStaff || {};
     const weekdayReq = requiredStaff.weekday || { dayShift: 3, nightShift: 3 };
     const weekendReq = requiredStaff.weekend || { nightShift: 3 };
@@ -145,6 +148,11 @@ function solveCSP(dates, shiftStaff, dayShiftOnlyStaff, config, savedRestDays) {
     const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
     const morningShift = shiftTypesConfig.morningShift || '明';
     const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+    
+    // 制約設定を取得（constraintsは上で既に宣言済み）
+    const maxConsecutive24Shifts = constraints.maxConsecutive24Shifts || 2;
+    const preventSamePair = constraints.preventSamePair !== false;
+    const samePairPenalty = config.penalties?.samePairPenalty || 100000;
     
     // 各日付で必要な人数を計算
     const dailyRequirements = dates.map(dateInfo => {
@@ -219,7 +227,10 @@ function solveCSP(dates, shiftStaff, dayShiftOnlyStaff, config, savedRestDays) {
         targetHoursMax,
         shift24Hours,
         hour24Shifts,
-        morningShift
+        morningShift,
+        maxConsecutive24Shifts,
+        preventSamePair,
+        samePairPenalty
     );
     
     return result ? schedule : null;
@@ -238,8 +249,14 @@ function heuristicAssign24Shifts(
     targetHoursMax,
     shift24Hours,
     hour24Shifts,
-    morningShift
+    morningShift,
+    maxConsecutive24Shifts = 2,
+    preventSamePair = true,
+    samePairPenalty = 100000
 ) {
+    // 前日の24勤担当者ペアを追跡（ペア連続防止用）
+    let previousDayPair = [];
+    
     // 各日付で順次割り当て
     dates.forEach((dateInfo, dateIndex) => {
         const req = dailyRequirements[dateIndex];
@@ -248,7 +265,8 @@ function heuristicAssign24Shifts(
         // 候補者を取得
         const candidates = getCandidates(
             schedule, dateInfo.date, shiftStaff, dates, dateIndex,
-            target24ShiftCount, targetHoursMax, shift24Hours, hour24Shifts, morningShift
+            target24ShiftCount, targetHoursMax, shift24Hours, hour24Shifts, morningShift,
+            previousDayPair, preventSamePair, samePairPenalty, maxConsecutive24Shifts
         );
         
         // 優先度順にソート
@@ -256,11 +274,13 @@ function heuristicAssign24Shifts(
         
         // 必要な人数分だけ割り当て
         let assigned = 0;
+        const todaysAssignedStaff = [];
         candidates.forEach((candidate, idx) => {
             if (assigned < requiredNightShift) {
-                if (canAssign24Shift(schedule, candidate.staff, dateInfo.date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift)) {
+                if (canAssign24Shift(schedule, candidate.staff, dateInfo.date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift, maxConsecutive24Shifts)) {
                     const shiftType = assigned % 2 === 0 ? '24A' : '24B';
                     schedule[candidate.staff][dateInfo.date] = shiftType;
+                    todaysAssignedStaff.push(candidate.staff);
                     
                     // 翌日に「明」を自動配置
                     if (dateIndex < dates.length - 1) {
@@ -279,9 +299,10 @@ function heuristicAssign24Shifts(
         if (assigned < requiredNightShift) {
             shiftStaff.forEach(staff => {
                 if (assigned < requiredNightShift) {
-                    if (canAssign24Shift(schedule, staff, dateInfo.date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift)) {
+                    if (canAssign24Shift(schedule, staff, dateInfo.date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift, maxConsecutive24Shifts)) {
                         const shiftType = assigned % 2 === 0 ? '24A' : '24B';
                         schedule[staff][dateInfo.date] = shiftType;
+                        todaysAssignedStaff.push(staff);
                         
                         if (dateIndex < dates.length - 1) {
                             const nextDate = dates[dateIndex + 1].date;
@@ -295,141 +316,18 @@ function heuristicAssign24Shifts(
                 }
             });
         }
+        
+        // 当日の24勤担当者ペアを記録（次の日のペア連続防止用）
+        previousDayPair = todaysAssignedStaff;
     });
     
     return true;
 }
 
 /**
- * バックトラッキング：24勤を割り当て（非効率のため使用しない）
- */
-function backtrackAssign24Shifts(
-    schedule, 
-    dates, 
-    shiftStaff, 
-    dailyRequirements, 
-    target24ShiftCount,
-    targetHoursMax,
-    shift24Hours,
-    hour24Shifts,
-    morningShift,
-    dateIndex
-) {
-    // すべての日付を処理した場合
-    if (dateIndex >= dates.length) {
-        // すべての制約を満たしているかチェック
-        return validateSolution(schedule, dates, shiftStaff, dailyRequirements, target24ShiftCount, targetHoursMax, shift24Hours);
-    }
-    
-    const dateInfo = dates[dateIndex];
-    const req = dailyRequirements[dateIndex];
-    const requiredNightShift = req.nightShift;
-    
-    // 現在の日付で既に割り当てられている24勤の数をカウント
-    let currentNightShiftCount = 0;
-    shiftStaff.forEach(staff => {
-        const shift = schedule[staff][dateInfo.date];
-        if (shift === '24A' || shift === '24B') {
-            currentNightShiftCount++;
-        }
-    });
-    
-    // 必要な人数に達している場合、次の日付へ
-    if (currentNightShiftCount >= requiredNightShift) {
-        return backtrackAssign24Shifts(
-            schedule, dates, shiftStaff, dailyRequirements, target24ShiftCount,
-            targetHoursMax, shift24Hours, hour24Shifts, morningShift, dateIndex + 1
-        );
-    }
-    
-    // まだ必要な人数に達していない場合、候補者を選択
-    const candidates = getCandidates(
-        schedule, dateInfo.date, shiftStaff, dates, dateIndex,
-        target24ShiftCount, targetHoursMax, shift24Hours, hour24Shifts, morningShift
-    );
-    
-    // 候補者を優先度順にソート
-    candidates.sort((a, b) => a.priority - b.priority);
-    
-    // 必要な人数分だけ割り当てを試行
-    const needed = requiredNightShift - currentNightShiftCount;
-    const assignments = [];
-    
-    // 組み合わせを生成（最大10個の候補から必要な人数を選択）
-    const maxCombinations = Math.min(100, Math.pow(2, Math.min(candidates.length, 10)));
-    
-    for (let i = 0; i < Math.min(maxCombinations, candidates.length); i++) {
-        const candidate = candidates[i];
-        if (assignments.length >= needed) break;
-        
-        // 制約チェック
-        if (canAssign24Shift(schedule, candidate.staff, dateInfo.date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift)) {
-            assignments.push(candidate);
-        }
-    }
-    
-    // 必要な人数に達するまで、追加の候補者を試行
-    for (let i = assignments.length; i < needed && i < candidates.length; i++) {
-        const candidate = candidates[i];
-        if (canAssign24Shift(schedule, candidate.staff, dateInfo.date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift)) {
-            assignments.push(candidate);
-        }
-    }
-    
-    // 割り当てを試行
-    for (let combo = 0; combo < Math.min(100, Math.pow(2, Math.min(assignments.length, 8))); combo++) {
-        const selected = [];
-        for (let i = 0; i < assignments.length; i++) {
-            if ((combo >> i) & 1) {
-                selected.push(assignments[i]);
-            }
-        }
-        
-        if (selected.length === needed) {
-            // 選択された候補者に24勤を割り当て
-            selected.forEach((candidate, idx) => {
-                const shiftType = idx % 2 === 0 ? '24A' : '24B';
-                schedule[candidate.staff][dateInfo.date] = shiftType;
-                
-                // 翌日に「明」を自動配置
-                if (dateIndex < dates.length - 1) {
-                    const nextDate = dates[dateIndex + 1].date;
-                    if (!schedule[candidate.staff][nextDate] || schedule[candidate.staff][nextDate] === null) {
-                        schedule[candidate.staff][nextDate] = morningShift;
-                    }
-                }
-            });
-            
-            // 次の日付へ再帰
-            const result = backtrackAssign24Shifts(
-                schedule, dates, shiftStaff, dailyRequirements, target24ShiftCount,
-                targetHoursMax, shift24Hours, hour24Shifts, morningShift, dateIndex + 1
-            );
-            
-            if (result) {
-                return true;
-            }
-            
-            // バックトラッキング：割り当てを元に戻す
-            selected.forEach(candidate => {
-                schedule[candidate.staff][dateInfo.date] = null;
-                if (dateIndex < dates.length - 1) {
-                    const nextDate = dates[dateIndex + 1].date;
-                    if (schedule[candidate.staff][nextDate] === morningShift) {
-                        schedule[candidate.staff][nextDate] = null;
-                    }
-                }
-            });
-        }
-    }
-    
-    return false;
-}
-
-/**
  * 候補者を取得（優先度付き）
  */
-function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24ShiftCount, targetHoursMax, shift24Hours, hour24Shifts, morningShift) {
+function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24ShiftCount, targetHoursMax, shift24Hours, hour24Shifts, morningShift, previousDayPair = [], preventSamePair = true, samePairPenalty = 100000, maxConsecutive24Shifts = 2) {
     const candidates = [];
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
     const prevPrevDate = dateIndex > 1 ? dates[dateIndex - 2].date : null;
@@ -447,17 +345,15 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
         // 制約チェック
         if (hour24Shifts.includes(prevShift)) return; // 前日が24勤の場合は不可
         
-        // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+        // 「24明24明24明」の連続パターンをチェック（設定値まで許可）
         let consecutive24MorningCount = 0;
         let checkDate = prevDate;
         let checkPrevDate = prevPrevDate;
-        // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
         while (checkDate && checkPrevDate) {
             const checkShift = schedule[staff][checkDate];
             const checkPrevShift = schedule[staff][checkPrevDate];
             if (checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
                 consecutive24MorningCount++;
-                // さらに前をチェック
                 const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
                 if (checkIndex > 0) {
                     checkDate = dates[checkIndex - 1].date;
@@ -469,13 +365,10 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
                 break;
             }
         }
-        // 連続3回を超える場合は不可
-        if (consecutive24MorningCount >= 3) {
+        // 連続24勤の制限（設定値を超える場合は不可）
+        if (consecutive24MorningCount >= maxConsecutive24Shifts) {
             return;
         }
-        
-        // 旧制約：前々日が24勤 AND 前日が「明」の場合は不可（上記のチェックで既にカバー）
-        // if (hour24Shifts.includes(prevPrevShift) && prevShift === morningShift) return;
         
         // 労働時間を計算
         let currentHours = 0;
@@ -495,6 +388,14 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
         const futureHours = currentHours + shift24Hours;
         if (futureHours > targetHoursMax) return; // 176時間を超える場合は不可
         
+        // 同じペアの連続防止チェック
+        let samePairPenaltyValue = 0;
+        if (preventSamePair && previousDayPair.length > 0) {
+            if (previousDayPair.includes(staff)) {
+                samePairPenaltyValue = samePairPenalty;
+            }
+        }
+        
         // 目標回数と現在の回数を比較
         const targetCount = target24ShiftCount[staff] || 0;
         const remaining24Shifts = targetCount - current24Count;
@@ -502,14 +403,11 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
         // 優先度計算
         let priority = 0;
         if (remaining24Shifts > 0 && remaining24Shifts <= remainingDays) {
-            // 目標回数に達していない場合、残りの日数で達成可能な場合を優先
-            priority = -100000 - (remaining24Shifts * 10000) + (targetHoursMax - currentHours) * 10;
+            priority = samePairPenaltyValue - 100000 - (remaining24Shifts * 10000) + (targetHoursMax - currentHours) * 10;
         } else if (remaining24Shifts <= 0) {
-            // 目標回数に達している場合、優先度を下げる
-            priority = 50000 + (current24Count - targetCount) * 1000;
+            priority = samePairPenaltyValue + 50000 + (current24Count - targetCount) * 1000;
         } else {
-            // 残りの日数で達成不可能な場合、優先度を下げる
-            priority = 40000 + (remaining24Shifts - remainingDays) * 1000;
+            priority = samePairPenaltyValue + 40000 + (remaining24Shifts - remainingDays) * 1000;
         }
         
         candidates.push({
@@ -527,7 +425,7 @@ function getCandidates(schedule, date, shiftStaff, dates, dateIndex, target24Shi
 /**
  * 24勤を割り当て可能かチェック
  */
-function canAssign24Shift(schedule, staff, date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift) {
+function canAssign24Shift(schedule, staff, date, dates, dateIndex, targetHoursMax, shift24Hours, hour24Shifts, morningShift, maxConsecutive24Shifts = 2) {
     const prevDate = dateIndex > 0 ? dates[dateIndex - 1].date : null;
     const prevPrevDate = dateIndex > 1 ? dates[dateIndex - 2].date : null;
     
@@ -544,17 +442,15 @@ function canAssign24Shift(schedule, staff, date, dates, dateIndex, targetHoursMa
         }
     }
     
-    // 「24明24明24明」の連続パターンをチェック（連続3回まで許可）
+    // 「24明24明24明」の連続パターンをチェック（設定値まで許可）
     let consecutive24MorningCount = 0;
     let checkDate = prevDate;
     let checkPrevDate = prevPrevDate;
-    // 過去を遡って「24勤→明→24勤→明→...」のパターンをカウント
     while (checkDate && checkPrevDate) {
         const checkShift = schedule[staff][checkDate];
         const checkPrevShift = schedule[staff][checkPrevDate];
         if (checkShift === morningShift && hour24Shifts.includes(checkPrevShift)) {
             consecutive24MorningCount++;
-            // さらに前をチェック
             const checkIndex = dates.findIndex(d => d.date === checkPrevDate);
             if (checkIndex > 0) {
                 checkDate = dates[checkIndex - 1].date;
@@ -566,8 +462,8 @@ function canAssign24Shift(schedule, staff, date, dates, dateIndex, targetHoursMa
             break;
         }
     }
-    // 連続3回を超える場合は不可
-    if (consecutive24MorningCount >= 3) {
+    // 連続24勤の制限（設定値を超える場合は不可）
+    if (consecutive24MorningCount >= maxConsecutive24Shifts) {
         return false;
     }
     

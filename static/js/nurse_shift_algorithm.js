@@ -588,9 +588,11 @@ function getShiftCandidatesRelaxed(
             const currentCount = staff24ShiftCount[staff] || 0;
             const remainingCount = targetCount - currentCount;
             
-            // 必要人数を満たすことを最優先（大きなペナルティ）
+            // 必要人数を満たすことを最優先（configからペナルティ値を取得）
+            const config = window.appData?.config || {};
+            const requiredStaffPenaltyBase = config.penalties?.requiredStaffPenalty || 1000000;
             const shortage = requiredNightShift - currentAssigned;
-            const shortagePenalty = shortage > 0 ? -1000000 * shortage : 0;
+            const shortagePenalty = shortage > 0 ? -requiredStaffPenaltyBase * shortage : 0;
             
             // 2連休がないスタッフを優先（月1回以上確保）
             const hasConsecutiveRest = hasConsecutiveRestDays(schedule, staff, dates, dateIndex, hour24Shifts, morningShift);

@@ -4,6 +4,7 @@
     --name-column-width: 80px;
     --date-cell-width: 45px;
     --hours-column-width: 70px;
+    --rest-column-width: 50px;
     
     /* カラーテーマ */
     --primary-color: #333;
@@ -205,8 +206,8 @@ header h1 {
 }
 
 .staff-hours-cell {
-    width: 70px;
-    min-width: 70px;
+    width: var(--hours-column-width);
+    min-width: var(--hours-column-width);
     padding: 11px 7px;
     background-color: #fff3cd;
     border-left: 2px solid #ddd;
@@ -217,13 +218,13 @@ header h1 {
     color: #333;
     font-size: 12px;
     position: sticky;
-    right: 0;
+    right: var(--rest-column-width);
     z-index: 10;
 }
 
 .hours-header-cell {
-    width: 70px;
-    min-width: 70px;
+    width: var(--hours-column-width);
+    min-width: var(--hours-column-width);
     padding: 4px;
     background-color: #fff3cd;
     border-left: 2px solid #ddd;
@@ -233,6 +234,39 @@ header h1 {
     font-size: 10px;
     color: #333;
     border-right: 1px solid #ddd;
+}
+
+/* 休カウント列 */
+.staff-rest-cell {
+    width: var(--rest-column-width);
+    min-width: var(--rest-column-width);
+    padding: 11px 7px;
+    background-color: #E3F2FD;
+    border-left: 1px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    color: #1976D2;
+    font-size: 12px;
+    position: sticky;
+    right: 0;
+    z-index: 10;
+}
+
+.rest-header-cell {
+    width: var(--rest-column-width);
+    min-width: var(--rest-column-width);
+    padding: 4px;
+    background-color: #E3F2FD;
+    border-left: 1px solid #ddd;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
+    color: #1976D2;
+    border-right: 1px solid #ddd;
+    font-weight: bold;
 }
 
 .date-cell {

@@ -44,10 +44,41 @@ window.ShiftOperations = (function() {
     // スタッフの勤務時間を計算して更新
     function updateStaffHours(staffName) {
         const hoursCell = document.querySelector(`.staff-hours-cell[data-staff="${staffName}"]`);
-        if (!hoursCell) return;
+        if (hoursCell) {
+            const totalHours = calculateStaffHours(staffName);
+            hoursCell.textContent = totalHours + 'H';
+        }
         
-        const totalHours = calculateStaffHours(staffName);
-        hoursCell.textContent = totalHours + 'H';
+        // 休カウントも同時に更新
+        updateStaffRestCount(staffName);
+    }
+
+    // スタッフの「休」カウントを計算
+    function calculateStaffRestCount(staffName) {
+        if (!staffName) return 0;
+        const dates = window.appData?.dates;
+        if (!dates || !Array.isArray(dates)) return 0;
+        
+        const scheduleData = window.ScheduleState?.getScheduleData() || {};
+        let restCount = 0;
+        dates.forEach(dateInfo => {
+            if (!dateInfo?.date) return;
+            const shiftType = scheduleData[staffName]?.[dateInfo.date];
+            if (shiftType === '休') {
+                restCount++;
+            }
+        });
+        
+        return restCount;
+    }
+
+    // スタッフの「休」カウントを更新
+    function updateStaffRestCount(staffName) {
+        const restCell = document.querySelector(`.staff-rest-cell[data-staff="${staffName}"]`);
+        if (!restCell) return;
+        
+        const restCount = calculateStaffRestCount(staffName);
+        restCell.textContent = restCount;
     }
 
     // 全スタッフの勤務時間を初期化
@@ -55,6 +86,7 @@ window.ShiftOperations = (function() {
         const staffList = window.appData?.staffList || [];
         staffList.forEach(staffName => {
             updateStaffHours(staffName);
+            updateStaffRestCount(staffName);
         });
     }
 

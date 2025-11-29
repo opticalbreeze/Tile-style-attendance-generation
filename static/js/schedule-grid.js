@@ -162,6 +162,23 @@ window.ScheduleGrid = (function() {
         hoursHeaderWeekday.textContent = '勤務時間';
         hoursHeaderWeekday.style.fontWeight = 'bold';
         datesHeaderWeekdays.appendChild(hoursHeaderWeekday);
+        
+        // 休カウントヘッダーを追加
+        const restHeaderMonth = document.createElement('div');
+        restHeaderMonth.className = 'rest-header-cell';
+        restHeaderMonth.textContent = '';
+        datesHeaderMonths.appendChild(restHeaderMonth);
+        
+        const restHeaderDay = document.createElement('div');
+        restHeaderDay.className = 'rest-header-cell';
+        restHeaderDay.textContent = '';
+        datesHeaderDays.appendChild(restHeaderDay);
+        
+        const restHeaderWeekday = document.createElement('div');
+        restHeaderWeekday.className = 'rest-header-cell';
+        restHeaderWeekday.textContent = '休';
+        restHeaderWeekday.style.fontWeight = 'bold';
+        datesHeaderWeekdays.appendChild(restHeaderWeekday);
     }
 
     // スタッフ行を作成
@@ -207,6 +224,13 @@ window.ScheduleGrid = (function() {
         hoursCell.dataset.staff = staffName;
         hoursCell.textContent = '0H';
         row.appendChild(hoursCell);
+        
+        // 休カウントセルを追加
+        const restCell = document.createElement('div');
+        restCell.className = 'staff-rest-cell';
+        restCell.dataset.staff = staffName;
+        restCell.textContent = '0';
+        row.appendChild(restCell);
         
         return row;
     }

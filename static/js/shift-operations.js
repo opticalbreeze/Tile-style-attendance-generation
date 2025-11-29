@@ -324,19 +324,20 @@ window.ShiftOperations = (function() {
             window.ScheduleState.setStaffShift(staffName, date, shiftType);
             
             // 24A、24B、または夜勤が配置された場合、翌日に自動的に「明」を配置
-            // config, shiftTypesConfig, hour24Shiftsは上で既に取得済み
             const configForMorning = window.appData?.config || {};
             const shiftTypesForMorning = configForMorning.shiftTypes || {};
             const hour24ShiftsForMorning = shiftTypesForMorning['24HourShifts'] || ['24A', '24B', '夜勤'];
             if (hour24ShiftsForMorning.includes(shiftType)) {
                 autoPlaceMorningShift(staffName, date);
             }
-            
-            // 勤務時間を更新
+        }
+        
+        // 勤務時間を更新（staffNameがあれば必ず更新）
+        if (staffName) {
             updateStaffHours(staffName);
         }
         
-        // 集計を更新
+        // 集計を更新（常に実行）
         if (window.Summary && window.Summary.updateSummary) {
             window.Summary.updateSummary();
         }

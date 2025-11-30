@@ -439,6 +439,33 @@ header h1 {
     background-color: #B71C1C;
 }
 
+.undo-btn {
+    width: 100%;
+    padding: 10px;
+    background-color: #FF9800;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-bottom: 10px;
+}
+
+.undo-btn:hover {
+    background-color: #F57C00;
+}
+
+.undo-btn:active {
+    background-color: #E65100;
+}
+
+.undo-btn:disabled {
+    background-color: #BDBDBD;
+    cursor: not-allowed;
+}
+
 .settings-section {
     display: flex;
     flex-direction: column;

@@ -74,9 +74,48 @@ header h1 {
 
 .period-info {
     display: flex;
-    gap: 20px;
+    flex-direction: column;
+    gap: 5px;
     color: #666;
     font-size: 14px;
+}
+
+.period-nav {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.period-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background-color: #1976D2;
+    color: white;
+    text-decoration: none;
+    border-radius: 50%;
+    font-size: 14px;
+    transition: background-color 0.2s, transform 0.1s;
+}
+
+.period-nav-btn:hover {
+    background-color: #1565C0;
+    transform: scale(1.1);
+}
+
+.period-nav-btn:active {
+    background-color: #0D47A1;
+    transform: scale(0.95);
+}
+
+#period-display {
+    font-size: 18px;
+    font-weight: bold;
+    color: #333;
+    min-width: 150px;
+    text-align: center;
 }
 
 .main-content {

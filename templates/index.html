@@ -11,7 +11,11 @@
         <header>
             <h1>勤務スケジュール管理</h1>
             <div class="period-info">
-                <span id="period-display">{{ period.display_year }}年{{ period.display_month }}月度</span>
+                <div class="period-nav">
+                    <a href="/?year={{ period.prev_year }}&month={{ period.prev_month }}" class="period-nav-btn" title="前月">◀</a>
+                    <span id="period-display">{{ period.display_year }}年{{ period.display_month }}月度</span>
+                    <a href="/?year={{ period.next_year }}&month={{ period.next_month }}" class="period-nav-btn" title="翌月">▶</a>
+                </div>
                 <span id="date-range">{{ period.start_date }} ～ {{ period.end_date }}</span>
             </div>
         </header>

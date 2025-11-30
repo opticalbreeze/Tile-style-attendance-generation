@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from datetime import datetime, timedelta
 import json
 import os
@@ -69,37 +69,40 @@ def load_config():
         print(f"エラー: 設定ファイルの読み込みに失敗しました: {e}")
         return default_config
 
-def get_payroll_period():
-    """給料計算月度の前月16日から当月15日までの期間を取得"""
-    today = datetime.now()
-    current_year = today.year
-    current_month = today.month
+def get_payroll_period(year=None, month=None):
+    """給料計算月度の前月16日から当月15日までの期間を取得
     
-    # 当月の15日を基準に期間を計算
-    if today.day <= 15:
-        # 15日以前なら、前月16日～当月15日
-        if current_month == 1:
-            start_date = datetime(current_year - 1, 12, 16)
-            end_date = datetime(current_year, 1, 15)
+    Args:
+        year: 表示年（指定しない場合は現在の月度）
+        month: 表示月（指定しない場合は現在の月度）
+    """
+    if year is None or month is None:
+        # 現在の日付から月度を自動計算
+        today = datetime.now()
+        current_year = today.year
+        current_month = today.month
+        
+        if today.day <= 15:
             display_month = current_month
             display_year = current_year
         else:
-            start_date = datetime(current_year, current_month - 1, 16)
-            end_date = datetime(current_year, current_month, 15)
-            display_month = current_month
-            display_year = current_year
+            if current_month == 12:
+                display_month = 1
+                display_year = current_year + 1
+            else:
+                display_month = current_month + 1
+                display_year = current_year
     else:
-        # 16日以降なら、当月16日～翌月15日
-        if current_month == 12:
-            start_date = datetime(current_year, 12, 16)
-            end_date = datetime(current_year + 1, 1, 15)
-            display_month = 1
-            display_year = current_year + 1
-        else:
-            start_date = datetime(current_year, current_month, 16)
-            end_date = datetime(current_year, current_month + 1, 15)
-            display_month = current_month + 1
-            display_year = current_year
+        display_year = year
+        display_month = month
+    
+    # 表示月度から期間を計算（前月16日～当月15日）
+    if display_month == 1:
+        start_date = datetime(display_year - 1, 12, 16)
+    else:
+        start_date = datetime(display_year, display_month - 1, 16)
+    
+    end_date = datetime(display_year, display_month, 15)
     
     # 期間内の全日期を生成
     dates = []
@@ -113,11 +116,26 @@ def get_payroll_period():
         })
         current += timedelta(days=1)
     
+    # 前月・翌月の計算
+    if display_month == 1:
+        prev_year, prev_month = display_year - 1, 12
+    else:
+        prev_year, prev_month = display_year, display_month - 1
+    
+    if display_month == 12:
+        next_year, next_month = display_year + 1, 1
+    else:
+        next_year, next_month = display_year, display_month + 1
+    
     return {
         'start_date': start_date.strftime('%Y-%m-%d'),
         'end_date': end_date.strftime('%Y-%m-%d'),
         'display_month': display_month,
         'display_year': display_year,
+        'prev_year': prev_year,
+        'prev_month': prev_month,
+        'next_year': next_year,
+        'next_month': next_month,
         'dates': dates
     }
 
@@ -128,14 +146,20 @@ def get_weekday_jp(weekday):
 
 @app.route('/')
 def index():
-    period = get_payroll_period()
+    # URLパラメータから年月を取得
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    
+    period = get_payroll_period(year, month)
     config = load_config()
     return render_template('index.html', period=period, config=config)
 
 @app.route('/api/period')
 def api_period():
     """期間情報をJSONで返す"""
-    period = get_payroll_period()
+    year = request.args.get('year', type=int)
+    month = request.args.get('month', type=int)
+    period = get_payroll_period(year, month)
     return jsonify(period)
 
 if __name__ == '__main__':

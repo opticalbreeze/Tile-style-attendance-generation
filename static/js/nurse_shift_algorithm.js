@@ -101,6 +101,7 @@ function nurseShiftAutoAttend() {
 
 /**
  * 看護師シフトスケジュールを生成（希望休を考慮した前方参照型アルゴリズム）
+ * 休み回数ベースで平準化（31日→9休、30日→8休）
  */
 function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyRequirements, config, savedRestDays) {
     // 設定から定数を取得
@@ -109,15 +110,24 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
     const targetHoursMax = constraints.targetHoursMax || 176;
     const shift24Hours = shiftHoursConfig['24A'] || 16;
     const dayShiftHours = shiftHoursConfig['日勤'] || 8;
+    const paidLeaveHours = shiftHoursConfig['有休'] || 8;
     const shiftTypesConfig = config.shiftTypes || {};
     const hour24Shifts = shiftTypesConfig['24HourShifts'] || ['24A', '24B', '夜勤'];
     const morningShift = shiftTypesConfig.morningShift || '明';
     const dayShiftType = shiftTypesConfig.dayShift || '日勤';
+    const paidLeaveType = shiftTypesConfig.paidLeave || '有休';
     
     const maxConsecutive24Shifts = constraints.maxConsecutive24Shifts || 2;
     const preventSamePair = constraints.preventSamePair !== false;
     const samePairPenalty = config.penalties?.samePairPenalty || 100000;
     const hoursDifferenceMultiplier = config.penalties?.hoursDifferenceMultiplier || 100;
+    
+    // 🆕 休み回数ベースの平準化設定
+    const totalDays = dates.length;
+    const restDaysFor31 = constraints.restDaysFor31 || 9;
+    const restDaysFor30 = constraints.restDaysFor30 || 8;
+    // 月度の日数に応じた目標休み回数（有休は含まない）
+    const targetRestDays = totalDays >= 31 ? restDaysFor31 : restDaysFor30;
     
     const total24ShiftNeeded = dailyRequirements.reduce((sum, req) => sum + req.nightShift, 0);
     const max24ShiftsPerStaff = Math.floor(targetHoursMax / shift24Hours);
@@ -128,13 +138,19 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
     const staffAvailability = {};
     shiftStaff.forEach(staff => {
         let availableDays = 0;
-        let restDaysCount = 0;
+        let restDaysCount = 0;      // 「休」のみカウント（有休は含まない）
+        let paidLeaveDaysCount = 0; // 「有休」のカウント
         
         dates.forEach((dateInfo, idx) => {
-            const hasRestDay = savedRestDays[staff]?.[dateInfo.date];
+            const savedShift = savedRestDays[staff]?.[dateInfo.date];
             
-            if (hasRestDay) {
-                restDaysCount++;
+            if (savedShift) {
+                // 有休と休を区別してカウント
+                if (savedShift === paidLeaveType) {
+                    paidLeaveDaysCount++;
+                } else if (savedShift === '休') {
+                    restDaysCount++;
+                }
             } else {
                 // 前日が希望休でない、かつ翌日に配置余地がある場合のみカウント
                 const prevDate = idx > 0 ? dates[idx - 1].date : null;
@@ -149,9 +165,14 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
             }
         });
         
+        // 🆕 残り必要な休み回数を計算（目標 - 既存の「休」）
+        const remainingRestDaysNeeded = Math.max(0, targetRestDays - restDaysCount);
+        
         staffAvailability[staff] = {
             availableDays: availableDays,
-            restDaysCount: restDaysCount,
+            restDaysCount: restDaysCount,           // 「休」のみ
+            paidLeaveDaysCount: paidLeaveDaysCount, // 「有休」
+            remainingRestDaysNeeded: remainingRestDaysNeeded,
             maxPossible24Shifts: Math.min(
                 Math.floor(availableDays / 2), // 24勤+明で2日必要
                 max24ShiftsPerStaff
@@ -355,19 +376,79 @@ function generateNurseShiftSchedule(dates, shiftStaff, dayShiftOnlyStaff, dailyR
         }
     });
     
-    // 未割り当て日を「休」にする
+    // 🆕 休み回数ベースの平準化
+    // 未割り当て日を処理し、目標休み回数に調整
     shiftStaff.forEach(staff => {
-        dates.forEach(dateInfo => {
-            if (!schedule[staff][dateInfo.date] || schedule[staff][dateInfo.date] === null) {
+        // 現在の休み回数をカウント（「休」のみ、有休は含まない）
+        let currentRestCount = 0;
+        let unassignedDays = [];
+        
+        dates.forEach((dateInfo, idx) => {
+            const shift = schedule[staff][dateInfo.date];
+            if (shift === '休') {
+                currentRestCount++;
+            } else if (!shift || shift === null) {
+                // 未割り当て日をリストに追加
                 if (!savedRestDays[staff] || !savedRestDays[staff][dateInfo.date]) {
-                    schedule[staff][dateInfo.date] = '休';
+                    unassignedDays.push({ date: dateInfo.date, index: idx, weekday: dateInfo.weekday_jp });
                 }
             }
         });
+        
+        // 目標休み回数との差を計算
+        const restDaysNeeded = targetRestDays - currentRestCount;
+        
+        if (restDaysNeeded > 0 && unassignedDays.length > 0) {
+            // 休みを追加する必要がある場合
+            // 土日を優先して休みに
+            const weekendDays = unassignedDays.filter(d => d.weekday === '土' || d.weekday === '日');
+            const weekdayDays = unassignedDays.filter(d => d.weekday !== '土' && d.weekday !== '日');
+            
+            let restAssigned = 0;
+            
+            // まず土日を「休」に
+            weekendDays.forEach(day => {
+                if (restAssigned < restDaysNeeded) {
+                    schedule[staff][day.date] = '休';
+                    restAssigned++;
+                }
+            });
+            
+            // 足りない場合は平日も「休」に
+            weekdayDays.forEach(day => {
+                if (restAssigned < restDaysNeeded) {
+                    schedule[staff][day.date] = '休';
+                    restAssigned++;
+                }
+            });
+            
+            // 残りの未割り当て日は日勤に（平日のみ）
+            unassignedDays.forEach(day => {
+                if (!schedule[staff][day.date] || schedule[staff][day.date] === null) {
+                    const isWeekday = day.weekday !== '土' && day.weekday !== '日';
+                    if (isWeekday) {
+                        schedule[staff][day.date] = dayShiftType;
+                    } else {
+                        schedule[staff][day.date] = '休';
+                    }
+                }
+            });
+        } else {
+            // 休み回数が既に目標に達している場合
+            // 残りの未割り当て日は日勤（平日）または休（土日）に
+            unassignedDays.forEach(day => {
+                const isWeekday = day.weekday !== '土' && day.weekday !== '日';
+                if (isWeekday) {
+                    schedule[staff][day.date] = dayShiftType;
+                } else {
+                    schedule[staff][day.date] = '休';
+                }
+            });
+        }
     });
     
     // 2連休の確保
-    ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift, targetHoursMax, shift24Hours);
+    ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift, targetRestDays, shift24Hours);
     
     return schedule;
 }
@@ -661,25 +742,24 @@ function hasConsecutiveRestDays(schedule, staff, dates, currentDateIndex, hour24
 
 /**
  * 2連休を確保（月1回以上）
- * 労働時間制約を考慮し、最低労働時間を下回る場合は2連休を作らない
+ * 休み回数制約を考慮し、目標休み回数を超える場合は2連休を作らない
  */
-function ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift, targetHoursMax = 176, shift24Hours = 16) {
+function ensureConsecutiveRestDays(schedule, shiftStaff, dates, savedRestDays, hour24Shifts, morningShift, targetRestDays = 9, shift24Hours = 16) {
     const restShift = '休';
-    const minTargetHours = targetHoursMax - 32; // 最低目標時間
     
     shiftStaff.forEach(staff => {
-        // 現在の労働時間を計算
-        let currentHours = 0;
+        // 現在の休み回数をカウント（「休」のみ、有休は含まない）
+        let currentRestCount = 0;
         dates.forEach(dateInfo => {
             const shift = schedule[staff]?.[dateInfo.date];
-            if (hour24Shifts.includes(shift)) {
-                currentHours += shift24Hours;
+            if (shift === restShift) {
+                currentRestCount++;
             }
         });
         
-        // 労働時間が最低目標に達していない場合は2連休を作らない
-        if (currentHours < minTargetHours) {
-            return; // このスタッフはスキップ
+        // 休み回数が目標を超える場合は2連休を作らない（休みを増やさない）
+        if (currentRestCount >= targetRestDays) {
+            return; // このスタッフはスキップ（既に十分な休みがある）
         }
         
         // 既に2連休があるかチェック

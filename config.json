@@ -33,7 +33,9 @@
         "maxConsecutive24Shifts": 2,
         "preventSamePair": true,
         "targetHoursMax": 176,
-        "relaxedHoursMax": 200
+        "relaxedHoursMax": 200,
+        "restDaysFor31": 9,
+        "restDaysFor30": 8
     },
     "shiftTypes": {
         "24HourShifts": ["24A", "24B", "夜勤"],
